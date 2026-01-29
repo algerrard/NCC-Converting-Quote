@@ -176,8 +176,8 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             density_factor
         )
 
-        # Step 2: Calculate number of rolls
-        num_rolls = quantity_lbs / avg_roll_weight if avg_roll_weight > 0 else 1
+        # Step 2: Calculate number of rolls (round up - no partial rolls)
+        num_rolls = int(np.ceil(quantity_lbs / avg_roll_weight)) if avg_roll_weight > 0 else 1
         num_rolls = max(1, num_rolls)  # At least 1 roll
 
         # Step 2b: Determine rolls running at one time (for sheeting)
@@ -204,8 +204,8 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         processing_hours = quantity_lbs / lbs_per_hour if lbs_per_hour > 0 else 0
 
         # Step 5: Calculate roll change hours
-        # Number of roll changes = total rolls / rolls running at one time
-        num_roll_changes = num_rolls / rolls_running if rolls_running > 0 else num_rolls
+        # Number of roll changes = total rolls / rolls running at one time (round up)
+        num_roll_changes = int(np.ceil(num_rolls / rolls_running)) if rolls_running > 0 else num_rolls
         roll_change_hours = roll_change_hrs * num_roll_changes
 
         # Step 6: Total hours
@@ -232,9 +232,9 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             "hourly_rate": hourly_rate,
             "roll_change_hrs": roll_change_hrs,
             "avg_roll_weight": round(avg_roll_weight, 2),
-            "num_rolls": round(num_rolls, 2),
+            "num_rolls": num_rolls,
             "rolls_running": rolls_running,
-            "num_roll_changes": round(num_roll_changes, 2),
+            "num_roll_changes": num_roll_changes,
             "lbs_per_hour": round(lbs_per_hour, 2),
             "processing_hours": round(processing_hours, 4),
             "roll_change_hours": round(roll_change_hours, 4),
