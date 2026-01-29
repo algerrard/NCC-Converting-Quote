@@ -115,7 +115,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
 
         # Get paper parameters
         area_in = float(paper_row.get("Area(IN)", 0) or 0)
-        density_factor = float(paper_row.get("Density_factor", 0) or 0)
+        density_factor = float(paper_row.get("Density_Factor", 0) or 0)
         gsm_factor = float(paper_row.get("GSM_Factor", 3100) or 3100)
         run_adjust = float(paper_row.get("RunAdjust", 1.0) or 1.0)
 
@@ -123,7 +123,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             result["error"] = "Area(IN) is missing or zero in PaperInformation"
             return result
         if density_factor == 0:
-            result["error"] = "Density_factor is missing or zero in PaperInformation"
+            result["error"] = "Density_Factor is missing or zero in PaperInformation"
             return result
 
         # Convert basis weight to LBS if needed
