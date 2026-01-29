@@ -292,26 +292,32 @@ def main():
     # =========================================================
     st.header("Quote Parameters")
 
-    # Service Selection
+    # Service Selection with larger font
     st.subheader("Service Type")
-    col1, col2 = st.columns(2)
-    with col1:
-        rewinding = st.checkbox("Rewinding", value=False)
-    with col2:
-        sheeting = st.checkbox("Sheeting", value=False)
+    st.markdown("""
+        <style>
+        div[data-testid="stRadio"] > label {
+            font-size: 1.2rem !important;
+            font-weight: 500;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"] label {
+            font-size: 1.1rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-    if not rewinding and not sheeting:
-        st.warning("Please select at least one service type.")
+    service_selection = st.radio(
+        "Select service type:",
+        options=["Rewinding", "Sheeting"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
 
     # Determine service type
-    if rewinding and sheeting:
-        service_type = "Both"
-    elif rewinding:
+    if service_selection == "Rewinding":
         service_type = "Rewinder"
-    elif sheeting:
-        service_type = "Sheeter"
     else:
-        service_type = None
+        service_type = "Sheeter"
 
     st.divider()
 
@@ -407,8 +413,6 @@ def main():
     if st.button("Calculate Quote", type="primary", use_container_width=True):
         # Validate inputs
         errors = []
-        if service_type is None:
-            errors.append("Please select at least one service type (Rewinding or Sheeting)")
         if basis_weight <= 0:
             errors.append("Basis Weight must be greater than 0")
         if cut_width <= 0:
