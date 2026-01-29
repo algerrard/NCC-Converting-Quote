@@ -34,7 +34,7 @@ except KeyError as e:
     st.stop()
 
 CONTAINER_NAME = "data"
-PAPER_INFO_BLOB = "PaperInformation.csv"
+PAPER_INFO_BLOB = "PaperInfoNCC.csv"
 MACHINE_INFO_BLOB = "MachineInfo.csv"
 
 # =========================================================
@@ -42,7 +42,7 @@ MACHINE_INFO_BLOB = "MachineInfo.csv"
 # =========================================================
 @st.cache_data(ttl=3600)
 def load_paper_info():
-    """Load PaperInformation.csv from Azure Blob Storage."""
+    """Load PaperInfoNCC.csv from Azure Blob Storage."""
     try:
         blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
         paper_client = blob_service_client.get_blob_client(container=CONTAINER_NAME, blob=PAPER_INFO_BLOB)
@@ -51,7 +51,7 @@ def load_paper_info():
         paper_df.columns = paper_df.columns.str.strip()
         return paper_df
     except Exception as e:
-        st.error(f"Error loading PaperInformation: {str(e)}")
+        st.error(f"Error loading PaperInfoNCC: {str(e)}")
         return None
 
 
@@ -126,7 +126,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Lookup paper info by Product Group
         paper_row = paper_df[paper_df[product_group_col].astype(str).str.strip() == str(product_group).strip()]
         if paper_row.empty:
-            result["error"] = f"Product Group '{product_group}' not found in PaperInformation"
+            result["error"] = f"Product Group '{product_group}' not found in PaperInfoNCC"
             return result
         paper_row = paper_row.iloc[0]
 
@@ -138,10 +138,10 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         num_shtr_rolls = int(paper_row.get("NumShtrRolls", 1) or 1)
 
         if area_in == 0:
-            result["error"] = "Area(IN) is missing or zero in PaperInformation"
+            result["error"] = "Area(IN) is missing or zero in PaperInfoNCC"
             return result
         if density_factor == 0:
-            result["error"] = "Density_Factor is missing or zero in PaperInformation"
+            result["error"] = "Density_Factor is missing or zero in PaperInfoNCC"
             return result
 
         # Convert basis weight to LBS if needed
@@ -267,7 +267,7 @@ def main():
         st.stop()
 
     # Debug: Show available columns (remove after identifying correct column)
-    with st.expander("Debug: PaperInformation Columns"):
+    with st.expander("Debug: PaperInfoNCC Columns"):
         st.write("Available columns:", paper_df.columns.tolist())
         st.write("First few rows:")
         st.dataframe(paper_df.head())
