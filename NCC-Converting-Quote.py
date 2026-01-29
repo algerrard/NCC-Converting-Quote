@@ -115,6 +115,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         product_group = params.get("product_group")
         basis_weight = params.get("basis_weight")
         basis_weight_unit = params.get("basis_weight_unit", "LBS")
+        caliper = params.get("caliper", 0)
         cut_width = params.get("cut_width")
         parent_roll_width = params.get("parent_roll_width")
         parent_roll_diameter = params.get("parent_roll_diameter")
@@ -134,6 +135,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         density_factor = float(paper_row.get("Density_Factor", 0) or 0)
         gsm_factor = float(paper_row.get("GSM_Factor", 3100) or 3100)
         run_adjust = float(paper_row.get("RunAdjust", 1.0) or 1.0)
+        num_shtr_rolls = int(paper_row.get("NumShtrRolls", 1) or 1)
 
         if area_in == 0:
             result["error"] = "Area(IN) is missing or zero in PaperInformation"
@@ -178,21 +180,33 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         num_rolls = quantity_lbs / avg_roll_weight if avg_roll_weight > 0 else 1
         num_rolls = max(1, num_rolls)  # At least 1 roll
 
+        # Step 2b: Determine rolls running at one time (for sheeting)
+        # If sheeting and caliper <= 11 (or blank/zero), use NumShtrRolls
+        # Otherwise, 1 roll at a time
+        if equip_type == "Sheeter" and (caliper == 0 or caliper is None or caliper <= 11):
+            rolls_running = num_shtr_rolls
+        else:
+            rolls_running = 1
+
         # Step 3: Calculate LbsPerHour
         # LbsPerHour = (BasisWt / (Area × 500)) × Cut Width × (AvgSpeed × 12) × 60 × RunAdjust
+        # For sheeting with multiple rolls, multiply by rolls_running
         lbs_per_hour = (
             (basis_weight_lbs / (area_in * 500))
             * cut_width
             * (avg_speed * 12)
             * 60
             * run_adjust
+            * rolls_running
         )
 
         # Step 4: Calculate processing hours
         processing_hours = quantity_lbs / lbs_per_hour if lbs_per_hour > 0 else 0
 
         # Step 5: Calculate roll change hours
-        roll_change_hours = roll_change_hrs * num_rolls
+        # Number of roll changes = total rolls / rolls running at one time
+        num_roll_changes = num_rolls / rolls_running if rolls_running > 0 else num_rolls
+        roll_change_hours = roll_change_hrs * num_roll_changes
 
         # Step 6: Total hours
         total_hours = processing_hours + roll_change_hours
@@ -209,14 +223,18 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         result["details"] = {
             "product_group": product_group,
             "basis_weight_lbs": round(basis_weight_lbs, 4),
+            "caliper": caliper,
             "area_in": area_in,
             "density_factor": density_factor,
             "run_adjust": run_adjust,
+            "num_shtr_rolls": num_shtr_rolls,
             "avg_speed_fpm": avg_speed,
             "hourly_rate": hourly_rate,
             "roll_change_hrs": roll_change_hrs,
             "avg_roll_weight": round(avg_roll_weight, 2),
             "num_rolls": round(num_rolls, 2),
+            "rolls_running": rolls_running,
+            "num_roll_changes": round(num_roll_changes, 2),
             "lbs_per_hour": round(lbs_per_hour, 2),
             "processing_hours": round(processing_hours, 4),
             "roll_change_hours": round(roll_change_hours, 4),
