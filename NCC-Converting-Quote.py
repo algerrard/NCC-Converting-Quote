@@ -73,6 +73,22 @@ def load_machine_info():
 # =========================================================
 # CALCULATION FUNCTIONS
 # =========================================================
+def clean_currency(value, default=0):
+    """
+    Clean a currency string (e.g., '$273.00') to a float.
+    """
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    # Remove $, commas, and whitespace
+    cleaned = str(value).replace('$', '').replace(',', '').strip()
+    try:
+        return float(cleaned)
+    except ValueError:
+        return default
+
+
 def calculate_roll_weight(diameter, core, width, density_factor):
     """
     Calculate the approximate weight of a roll.
@@ -147,7 +163,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
 
         # Get machine parameters
         avg_speed = float(machine_row.get("AvgSpeed(FPM)", machine_row.get("avgspeed(FPM)", machine_row.get("AvgSpeed", 2200))) or 2200)
-        hourly_rate = float(machine_row.get("HourlyRate", 273) or 273)
+        hourly_rate = clean_currency(machine_row.get("HourlyRate"), 273)
         roll_change_hrs = float(machine_row.get("Roll_Change_Hrs", 0.25) or 0.25)
 
         # Step 1: Calculate average roll weight
