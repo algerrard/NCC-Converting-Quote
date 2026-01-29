@@ -81,7 +81,7 @@ def calculate_roll_weight(diameter, core, width, density_factor):
     return (diameter**2 - core**2) * width * density_factor
 
 
-def calculate_base_rate(params, paper_df, machine_df):
+def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product Group"):
     """
     Calculate the base converting rate in $/CWT.
 
@@ -107,7 +107,7 @@ def calculate_base_rate(params, paper_df, machine_df):
         service_type = params.get("service_type")  # "Rewinder", "Sheeter", or "Both"
 
         # Lookup paper info by Product Group
-        paper_row = paper_df[paper_df["Product Group"].astype(str).str.strip() == str(product_group).strip()]
+        paper_row = paper_df[paper_df[product_group_col].astype(str).str.strip() == str(product_group).strip()]
         if paper_row.empty:
             result["error"] = f"Product Group '{product_group}' not found in PaperInformation"
             return result
@@ -408,7 +408,7 @@ def main():
             }
 
             # Calculate
-            result = calculate_base_rate(params, paper_df, machine_df)
+            result = calculate_base_rate(params, paper_df, machine_df, product_group_col)
             st.session_state.quote_result = result
             st.session_state.quote_params = params
 
