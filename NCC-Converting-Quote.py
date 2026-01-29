@@ -232,8 +232,25 @@ def main():
         st.error("Failed to load required data. Please check Azure connection.")
         st.stop()
 
+    # Debug: Show available columns (remove after identifying correct column)
+    with st.expander("Debug: PaperInformation Columns"):
+        st.write("Available columns:", paper_df.columns.tolist())
+        st.write("First few rows:")
+        st.dataframe(paper_df.head())
+
     # Get unique Product Groups for dropdown
-    product_groups = paper_df["Product Group"].dropna().unique().tolist()
+    # Try to find the Product Group column (may have different name)
+    product_group_col = None
+    for col in paper_df.columns:
+        if "product" in col.lower() and "group" in col.lower():
+            product_group_col = col
+            break
+
+    if product_group_col is None:
+        st.error(f"Could not find 'Product Group' column. Available columns: {paper_df.columns.tolist()}")
+        st.stop()
+
+    product_groups = paper_df[product_group_col].dropna().unique().tolist()
     product_groups.sort()
 
     # =========================================================
