@@ -167,6 +167,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         avg_speed = float(machine_row.get("AvgSpeed(FPM)", machine_row.get("avgspeed(FPM)", machine_row.get("AvgSpeed", 2200))) or 2200)
         hourly_rate = clean_currency(machine_row.get("HourlyRate"), 273)
         roll_change_hrs = float(machine_row.get("Roll_Change_Hrs", 0.25) or 0.25)
+        setup_hrs = float(machine_row.get("Setup_Hrs", 0.5) or 0.5)
 
         # Step 1: Calculate average roll weight
         avg_roll_weight = calculate_roll_weight(
@@ -204,12 +205,17 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         processing_hours = quantity_lbs / lbs_per_hour if lbs_per_hour > 0 else 0
 
         # Step 5: Calculate roll change hours
-        # Number of roll changes = total rolls / rolls running at one time (round up)
-        num_roll_changes = int(np.ceil(num_rolls / rolls_running)) if rolls_running > 0 else num_rolls
+        # Rewinding: roll changes = number of parent rolls × Roll_Change_Hrs
+        # Sheeting: roll changes = number of sets (total rolls / rolls running) × Roll_Change_Hrs
+        if equip_type == "Rewinder":
+            num_roll_changes = num_rolls
+        else:
+            # Sheeting: number of sets
+            num_roll_changes = int(np.ceil(num_rolls / rolls_running)) if rolls_running > 0 else num_rolls
         roll_change_hours = roll_change_hrs * num_roll_changes
 
-        # Step 6: Total hours
-        total_hours = processing_hours + roll_change_hours
+        # Step 6: Total hours (processing + roll changes + setup)
+        total_hours = processing_hours + roll_change_hours + setup_hrs
 
         # Step 7: Total cost
         total_cost = total_hours * hourly_rate
@@ -231,6 +237,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             "avg_speed_fpm": avg_speed,
             "hourly_rate": hourly_rate,
             "roll_change_hrs": roll_change_hrs,
+            "setup_hrs": setup_hrs,
             "avg_roll_weight": round(avg_roll_weight, 2),
             "num_rolls": num_rolls,
             "rolls_running": rolls_running,
