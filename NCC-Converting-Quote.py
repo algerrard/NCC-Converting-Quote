@@ -36,6 +36,7 @@ except KeyError as e:
 CONTAINER_NAME = "data"
 PAPER_INFO_BLOB = "PaperInfoNCC.csv"
 MACHINE_INFO_BLOB = "MachineInfo.csv"
+ADD_CHARGE_BLOB = "NCC Add Charge Schedule.csv"
 
 # =========================================================
 # DATA LOADING
@@ -67,6 +68,21 @@ def load_machine_info():
         return machine_df
     except Exception as e:
         st.error(f"Error loading MachineInfo: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=3600)
+def load_add_charges():
+    """Load NCC Add Charge Schedule.csv from Azure Blob Storage."""
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+        blob_client = blob_service_client.get_blob_client(container=CONTAINER_NAME, blob=ADD_CHARGE_BLOB)
+        csv_data = blob_client.download_blob().readall().decode("utf-8")
+        df = pd.read_csv(StringIO(csv_data))
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception as e:
+        st.error(f"Error loading Add Charge Schedule: {str(e)}")
         return None
 
 
@@ -166,8 +182,10 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Get machine parameters
         avg_speed = float(machine_row.get("AvgSpeed(FPM)", machine_row.get("avgspeed(FPM)", machine_row.get("AvgSpeed", 2200))) or 2200)
         hourly_rate = clean_currency(machine_row.get("HourlyRate"), 273)
-        roll_change_hrs = float(machine_row.get("Roll_Change_Hrs", 0.25) or 0.25)
-        setup_hrs = float(machine_row.get("Setup_Hrs", 0.5) or 0.5)
+        raw_rc = machine_row.get("Roll_Change_Hrs")
+        roll_change_hrs = float(raw_rc) if pd.notna(raw_rc) else 0.25
+        raw_su = machine_row.get("Setup_Hrs")
+        setup_hrs = float(raw_su) if pd.notna(raw_su) else 0.5
 
         # Step 1: Calculate average roll weight
         avg_roll_weight = calculate_roll_weight(
@@ -184,7 +202,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Step 2b: Determine rolls running at one time (for sheeting)
         # If sheeting and caliper <= 11 (or blank/zero), use NumShtrRolls
         # Otherwise, 1 roll at a time
-        if equip_type == "Sheeter" and (caliper == 0 or caliper is None or caliper <= 11):
+        if equip_type == "Sheeter" and (caliper == 0 or caliper is None or caliper <= 0.011):
             rolls_running = num_shtr_rolls
         else:
             rolls_running = 1
@@ -259,6 +277,41 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         return result
 
 
+def calculate_additional_charges(checked_items, add_charge_df, quantity_lbs):
+    """
+    Calculate surcharges for checked add-charge items.
+
+    Returns (total_additional_cwt, breakdown) where breakdown is a list of
+    (parameter_name, charge_cwt) tuples.
+    """
+    breakdown = []
+    total = 0.0
+
+    for param_name in checked_items:
+        row = add_charge_df[add_charge_df["Parameter"].str.strip() == param_name]
+        if row.empty:
+            continue
+        row = row.iloc[0]
+        method = str(row.get("Method", "")).strip()
+        charge_val = row.get("Charge", 0)
+
+        if method == "CWT":
+            amt = clean_currency(charge_val, 0)
+        elif method == "Formula":
+            # Partial Roll Usage formula: (60 / Order Qty) * 100
+            if quantity_lbs > 0:
+                amt = (60 / quantity_lbs) * 100
+            else:
+                amt = 0.0
+        else:
+            amt = 0.0
+
+        breakdown.append((param_name, round(amt, 2)))
+        total += amt
+
+    return round(total, 2), breakdown
+
+
 # =========================================================
 # MAIN APP
 # =========================================================
@@ -268,16 +321,11 @@ def main():
     # Load data
     paper_df = load_paper_info()
     machine_df = load_machine_info()
+    add_charge_df = load_add_charges()
 
     if paper_df is None or machine_df is None:
         st.error("Failed to load required data. Please check Azure connection.")
         st.stop()
-
-    # Debug: Show available columns (remove after identifying correct column)
-    with st.expander("Debug: PaperInfoNCC Columns"):
-        st.write("Available columns:", paper_df.columns.tolist())
-        st.write("First few rows:")
-        st.dataframe(paper_df.head())
 
     # Get unique Product Groups for dropdown
     # Try to find the Product Group column (may have different name)
@@ -412,6 +460,29 @@ def main():
             format="%.0f"
         )
 
+    # =========================================================
+    # ADDITIONAL CHARGES (checkboxes)
+    # =========================================================
+    checked_items = []
+    if add_charge_df is not None:
+        # Map service selection to Operation column value
+        operation_filter = "Rewinding" if service_type == "Rewinder" else "Sheeting"
+        checkbox_rows = add_charge_df[
+            (add_charge_df["Input Method"].str.strip() == "Checkbox")
+            & (add_charge_df["Operation"].str.strip() == operation_filter)
+        ]
+        if not checkbox_rows.empty:
+            st.subheader("Additional Charges")
+            for _, row in checkbox_rows.iterrows():
+                param = str(row["Parameter"]).strip()
+                method = str(row.get("Method", "")).strip()
+                if method == "CWT":
+                    charge_display = f"${clean_currency(row['Charge']):.2f}/CWT"
+                else:
+                    charge_display = "Formula"
+                if st.checkbox(f"{param} ({charge_display})", key=f"chk_{param}"):
+                    checked_items.append(param)
+
     st.divider()
 
     # =========================================================
@@ -454,6 +525,20 @@ def main():
 
             # Calculate
             result = calculate_base_rate(params, paper_df, machine_df, product_group_col)
+
+            # Apply additional charges
+            if result["success"] and checked_items and add_charge_df is not None:
+                add_total, add_breakdown = calculate_additional_charges(
+                    checked_items, add_charge_df, quantity_lbs
+                )
+                result["additional_charges_cwt"] = add_total
+                result["additional_breakdown"] = add_breakdown
+                result["total_rate_cwt"] = round(result["base_rate_cwt"] + add_total, 2)
+            else:
+                result["additional_charges_cwt"] = 0.0
+                result["additional_breakdown"] = []
+                result["total_rate_cwt"] = result.get("base_rate_cwt", 0)
+
             st.session_state.quote_result = result
             st.session_state.quote_params = params
 
@@ -467,10 +552,23 @@ def main():
 
         if result["success"]:
             # Display main result prominently
-            st.metric(
-                label="Base Rate",
-                value=f"${result['base_rate_cwt']:.2f} / CWT"
-            )
+            add_total = result.get("additional_charges_cwt", 0)
+            total_rate = result.get("total_rate_cwt", result["base_rate_cwt"])
+
+            col_r1, col_r2 = st.columns(2)
+            with col_r1:
+                st.metric(label="Base Rate", value=f"${result['base_rate_cwt']:.2f} / CWT")
+            with col_r2:
+                if add_total > 0:
+                    st.metric(label="Total Rate", value=f"${total_rate:.2f} / CWT")
+
+            # Show additional charges breakdown
+            add_breakdown = result.get("additional_breakdown", [])
+            if add_breakdown:
+                st.markdown("**Additional Charges:**")
+                for name, amt in add_breakdown:
+                    st.write(f"- {name}: ${amt:.2f}/CWT")
+                st.write(f"- **Surcharge Total: ${add_total:.2f}/CWT**")
 
             # Show calculation details in expander
             with st.expander("View Calculation Details"):
