@@ -467,10 +467,9 @@ def main():
         parent_roll_core = st.number_input(
             "Parent Roll Core (IN)",
             min_value=0.0,
-            value=3.0,
+            value=0.0,
             step=0.5,
             format="%.2f",
-            help="Default is 3 inches if not specified",
             key=f"parent_roll_core{ks}"
         )
 
