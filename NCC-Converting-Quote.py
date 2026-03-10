@@ -356,13 +356,14 @@ def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
         breakdown.append((f"Order Qty Adjustment (+{pct}%)", upcharge_amt))
 
     # --- 1-hour minimum charge ---
-    # After order qty upcharge, check if (base + upcharge) × qty covers 1 hour
+    # After order qty upcharge, check if (base + upcharge) × qty covers 1 hour.
+    # If not, replace all prior charges with a single minimum line.
     subtotal_cwt = adjusted_base + auto_charges
     order_total = (subtotal_cwt * quantity_lbs) / 100
     if order_total < hourly_rate and quantity_lbs > 0:
         min_rate_cwt = round((hourly_rate / quantity_lbs) * 100, 2)
-        min_upcharge = round(min_rate_cwt - subtotal_cwt, 2)
-        auto_charges = min_upcharge  # replace qty upcharge with minimum
+        min_upcharge = round(min_rate_cwt - adjusted_base, 2)
+        auto_charges = min_upcharge
         breakdown = [("Minimum order charge applied", min_upcharge)]
 
     # --- Trim charge (Sheeting only) ---
