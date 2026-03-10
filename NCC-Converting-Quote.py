@@ -251,13 +251,6 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Step 8: $/CWT (always based on rate_qty so base rate is flat)
         base_rate_cwt = (total_cost / rate_qty) * 100 if rate_qty > 0 else 0
 
-        # Step 9: 1-hour minimum charge based on actual order quantity
-        # If the actual order's cost at the base rate is less than 1 hour,
-        # bump the rate so the customer pays for at least 1 hour.
-        min_rate_cwt = (hourly_rate / quantity_lbs) * 100 if quantity_lbs > 0 else 0
-        if base_rate_cwt < min_rate_cwt:
-            base_rate_cwt = min_rate_cwt
-
         # Populate result
         result["success"] = True
         result["base_rate_cwt"] = round(base_rate_cwt, 2)
@@ -330,9 +323,10 @@ def calculate_additional_charges(checked_items, add_charge_df, quantity_lbs):
 
 
 def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
-                           parent_roll_width, cut_width, sheet_length):
+                           parent_roll_width, cut_width, sheet_length,
+                           hourly_rate):
     """
-    Apply order-qty bracket multipliers and auto-calculated surcharges.
+    Apply order-qty bracket multipliers, 1-hour minimum, and auto-calculated surcharges.
 
     Returns (adjusted_base_rate, auto_charges_cwt, breakdown_list).
     """
@@ -360,6 +354,16 @@ def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
         pct = int((multiplier - 1.0) * 100)
         auto_charges += upcharge_amt
         breakdown.append((f"Order Qty Adjustment (+{pct}%)", upcharge_amt))
+
+    # --- 1-hour minimum charge ---
+    # After order qty upcharge, check if (base + upcharge) × qty covers 1 hour
+    subtotal_cwt = adjusted_base + auto_charges
+    order_total = (subtotal_cwt * quantity_lbs) / 100
+    if order_total < hourly_rate and quantity_lbs > 0:
+        min_rate_cwt = round((hourly_rate / quantity_lbs) * 100, 2)
+        min_upcharge = round(min_rate_cwt - subtotal_cwt, 2)
+        auto_charges = min_upcharge  # replace qty upcharge with minimum
+        breakdown = [("Minimum order charge applied", min_upcharge)]
 
     # --- Trim charge (Sheeting only) ---
     if service_type != "Rewinder" and parent_roll_width > 0 and cut_width > 0:
@@ -619,7 +623,8 @@ def main():
                 # Auto charges (order qty brackets, trim, sheet length)
                 adjusted_base, auto_total, auto_breakdown = calculate_auto_charges(
                     result["base_rate_cwt"], service_type, quantity_lbs,
-                    parent_roll_width, cut_width, sheet_length
+                    parent_roll_width, cut_width, sheet_length,
+                    result["details"]["hourly_rate"]
                 )
                 result["adjusted_base_cwt"] = adjusted_base
                 result["auto_charges_cwt"] = auto_total
