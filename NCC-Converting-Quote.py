@@ -360,10 +360,10 @@ def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
         if trim > 4:
             auto_charges += 2.20
             breakdown.append(("Trim > 4\" surcharge", 2.20))
-        elif 0 < trim < 0.5:
+        elif trim < 0.5:
             trim_charge = round(base_rate_cwt * 0.165, 2)
             auto_charges += trim_charge
-            breakdown.append(("Trim < 0.5\" surcharge", trim_charge))
+            breakdown.append(("Insufficient Trim surcharge", trim_charge))
 
     # --- Sheet Length charge (Sheeting only) ---
     if service_type != "Rewinder" and 0 < sheet_length < 21:
