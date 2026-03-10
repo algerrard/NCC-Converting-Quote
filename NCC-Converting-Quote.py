@@ -292,8 +292,8 @@ def calculate_additional_charges(checked_items, add_charge_df, quantity_lbs):
         if row.empty:
             continue
         row = row.iloc[0]
-        method = str(row.get("Method", "")).strip()
-        charge_val = row.get("Charge", 0)
+        method = str(row.get("Charge Method", "")).strip()
+        charge_val = row.get("Additional Charge", 0)
 
         if method == "CWT":
             amt = clean_currency(charge_val, 0)
@@ -465,23 +465,21 @@ def main():
     # =========================================================
     checked_items = []
     if add_charge_df is not None:
-        # Map service selection to Operation column value
-        operation_filter = "Rewinding" if service_type == "Rewinder" else "Sheeting"
+        # Use str.contains to handle typos in the Operation column (e.g. "Rewindng")
+        operation_pattern = "Rewind" if service_type == "Rewinder" else "Sheeting"
         checkbox_rows = add_charge_df[
             (add_charge_df["Input Method"].str.strip() == "Checkbox")
-            & (add_charge_df["Operation"].str.strip() == operation_filter)
+            & (add_charge_df["Operation"].str.strip().str.contains(operation_pattern, case=False, na=False))
         ]
         if not checkbox_rows.empty:
             st.subheader("Additional Charges")
-            for _, row in checkbox_rows.iterrows():
-                param = str(row["Parameter"]).strip()
-                method = str(row.get("Method", "")).strip()
-                if method == "CWT":
-                    charge_display = f"${clean_currency(row['Charge']):.2f}/CWT"
-                else:
-                    charge_display = "Formula"
-                if st.checkbox(f"{param} ({charge_display})", key=f"chk_{param}"):
-                    checked_items.append(param)
+            # Right-align checkboxes using a spacer column
+            _, chk_col = st.columns([1, 2])
+            with chk_col:
+                for _, row in checkbox_rows.iterrows():
+                    param = str(row["Parameter"]).strip()
+                    if st.checkbox(param, key=f"chk_{param}"):
+                        checked_items.append(param)
 
     st.divider()
 
