@@ -318,6 +318,57 @@ def calculate_additional_charges(checked_items, add_charge_df, quantity_lbs):
     return round(total, 2), breakdown
 
 
+def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
+                           parent_roll_width, cut_width, sheet_length):
+    """
+    Apply order-qty bracket multipliers and auto-calculated surcharges.
+
+    Returns (adjusted_base_rate, auto_charges_cwt, breakdown_list).
+    """
+    breakdown = []
+    auto_charges = 0.0
+
+    # --- Order Qty bracket upcharge ---
+    multiplier = 1.0
+    if service_type == "Rewinder":
+        if 2000 <= quantity_lbs < 10000:
+            multiplier = 1.40
+        elif 10000 <= quantity_lbs < 20000:
+            multiplier = 1.30
+    else:  # Sheeter (or Both)
+        if 2000 <= quantity_lbs < 5000:
+            multiplier = 1.30
+        elif 5000 <= quantity_lbs < 10000:
+            multiplier = 1.20
+        elif 10000 <= quantity_lbs < 20000:
+            multiplier = 1.15
+
+    adjusted_base = base_rate_cwt * multiplier
+    if multiplier > 1.0:
+        upcharge_amt = adjusted_base - base_rate_cwt
+        pct = int((multiplier - 1.0) * 100)
+        breakdown.append((f"Order Qty Adjustment (+{pct}%)", round(upcharge_amt, 2)))
+
+    # --- Trim charge (Sheeting only) ---
+    if service_type != "Rewinder" and parent_roll_width > 0 and cut_width > 0:
+        trim = parent_roll_width - cut_width
+        if trim > 4:
+            auto_charges += 2.20
+            breakdown.append(("Trim > 4\" surcharge", 2.20))
+        elif 0 < trim < 0.5:
+            trim_charge = round(base_rate_cwt * 0.165, 2)
+            auto_charges += trim_charge
+            breakdown.append(("Trim < 0.5\" surcharge", trim_charge))
+
+    # --- Sheet Length charge (Sheeting only) ---
+    if service_type != "Rewinder" and 0 < sheet_length < 21:
+        length_charge = round(base_rate_cwt * 0.20, 2)
+        auto_charges += length_charge
+        breakdown.append(("Short Sheet Length surcharge", length_charge))
+
+    return round(adjusted_base, 2), round(auto_charges, 2), breakdown
+
+
 # =========================================================
 # MAIN APP
 # =========================================================
@@ -552,18 +603,35 @@ def main():
             # Calculate
             result = calculate_base_rate(params, paper_df, machine_df, product_group_col)
 
-            # Apply additional charges
-            if result["success"] and checked_items and add_charge_df is not None:
-                add_total, add_breakdown = calculate_additional_charges(
-                    checked_items, add_charge_df, quantity_lbs
+            if result["success"]:
+                # Auto charges (order qty brackets, trim, sheet length)
+                adjusted_base, auto_total, auto_breakdown = calculate_auto_charges(
+                    result["base_rate_cwt"], service_type, quantity_lbs,
+                    parent_roll_width, cut_width, sheet_length
                 )
+                result["adjusted_base_cwt"] = adjusted_base
+                result["auto_charges_cwt"] = auto_total
+                result["auto_breakdown"] = auto_breakdown
+
+                # Checkbox surcharges
+                if checked_items and add_charge_df is not None:
+                    add_total, add_breakdown = calculate_additional_charges(
+                        checked_items, add_charge_df, quantity_lbs
+                    )
+                else:
+                    add_total, add_breakdown = 0.0, []
                 result["additional_charges_cwt"] = add_total
                 result["additional_breakdown"] = add_breakdown
-                result["total_rate_cwt"] = round(result["base_rate_cwt"] + add_total, 2)
+
+                # Total = adjusted base + auto surcharges + checkbox surcharges
+                result["total_rate_cwt"] = round(adjusted_base + auto_total + add_total, 2)
             else:
+                result["adjusted_base_cwt"] = 0.0
+                result["auto_charges_cwt"] = 0.0
+                result["auto_breakdown"] = []
                 result["additional_charges_cwt"] = 0.0
                 result["additional_breakdown"] = []
-                result["total_rate_cwt"] = result.get("base_rate_cwt", 0)
+                result["total_rate_cwt"] = 0.0
 
             st.session_state.quote_result = result
             st.session_state.quote_params = params
@@ -578,23 +646,35 @@ def main():
 
         if result["success"]:
             # Display main result prominently
-            add_total = result.get("additional_charges_cwt", 0)
             total_rate = result.get("total_rate_cwt", result["base_rate_cwt"])
+            adjusted_base = result.get("adjusted_base_cwt", result["base_rate_cwt"])
+            auto_total = result.get("auto_charges_cwt", 0)
+            add_total = result.get("additional_charges_cwt", 0)
+            has_extras = (adjusted_base != result["base_rate_cwt"]) or auto_total > 0 or add_total > 0
 
             col_r1, col_r2 = st.columns(2)
             with col_r1:
                 st.metric(label="Base Rate", value=f"${result['base_rate_cwt']:.2f} / CWT")
             with col_r2:
-                if add_total > 0:
+                if has_extras:
                     st.metric(label="Total Rate", value=f"${total_rate:.2f} / CWT")
 
-            # Show additional charges breakdown
-            add_breakdown = result.get("additional_breakdown", [])
-            if add_breakdown:
-                st.markdown("**Additional Charges:**")
+            # Rate breakdown
+            if has_extras:
+                st.markdown("**Rate Breakdown:**")
+                st.write(f"- Base Rate: ${result['base_rate_cwt']:.2f}/CWT")
+
+                # Auto charges (order qty, trim, sheet length)
+                auto_breakdown = result.get("auto_breakdown", [])
+                for name, amt in auto_breakdown:
+                    st.write(f"- {name}: +${amt:.2f}/CWT")
+
+                # Checkbox surcharges
+                add_breakdown = result.get("additional_breakdown", [])
                 for name, amt in add_breakdown:
-                    st.write(f"- {name}: ${amt:.2f}/CWT")
-                st.write(f"- **Surcharge Total: ${add_total:.2f}/CWT**")
+                    st.write(f"- {name}: +${amt:.2f}/CWT")
+
+                st.write(f"- **Total Rate: ${total_rate:.2f}/CWT**")
 
             # Show calculation details in expander
             with st.expander("View Calculation Details"):
