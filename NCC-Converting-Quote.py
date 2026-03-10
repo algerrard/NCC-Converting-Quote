@@ -422,13 +422,16 @@ def main():
             format="%.2f"
         )
 
-        sheet_length = st.number_input(
-            "Sheet Length (IN)",
-            min_value=0.0,
-            value=0.0,
-            step=0.25,
-            format="%.2f"
-        )
+        if service_type == "Sheeter":
+            sheet_length = st.number_input(
+                "Sheet Length (IN)",
+                min_value=0.0,
+                value=0.0,
+                step=0.25,
+                format="%.2f"
+            )
+        else:
+            sheet_length = 0.0
 
     with col2:
         parent_roll_width = st.number_input(
@@ -484,9 +487,18 @@ def main():
     st.divider()
 
     # =========================================================
-    # CALCULATE QUOTE
+    # CALCULATE QUOTE / RESET
     # =========================================================
-    if st.button("Calculate Quote", type="primary", use_container_width=True):
+    btn_col1, btn_col2 = st.columns([3, 1])
+    with btn_col1:
+        calculate_clicked = st.button("Calculate Quote", type="primary", use_container_width=True)
+    with btn_col2:
+        if st.button("Reset", use_container_width=True):
+            st.session_state.quote_result = None
+            st.session_state.quote_params = {}
+            st.rerun()
+
+    if calculate_clicked:
         # Validate inputs
         errors = []
         if basis_weight <= 0:
