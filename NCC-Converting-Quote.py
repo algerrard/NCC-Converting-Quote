@@ -150,7 +150,11 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         area_in = float(paper_row.get("Area(IN)", 0) or 0)
         density_factor = float(paper_row.get("Density_Factor", 0) or 0)
         gsm_factor = float(paper_row.get("GSM_Factor", 3100) or 3100)
-        run_adjust = float(paper_row.get("RunAdjust", 1.0) or 1.0)
+        if service_type == "Rewinder":
+            ra_val = paper_row.get("RW_RunAdjust")
+        else:
+            ra_val = paper_row.get("SHT_RunAdjust")
+        run_adjust = float(ra_val) if pd.notna(ra_val) else 1.0
         num_shtr_rolls = int(paper_row.get("NumShtrRolls", 1) or 1)
 
         if area_in == 0:
@@ -460,26 +464,22 @@ def main():
             format="%.0f"
         )
 
-    # =========================================================
-    # ADDITIONAL CHARGES (checkboxes)
-    # =========================================================
-    checked_items = []
-    if add_charge_df is not None:
-        # Use str.contains to handle typos in the Operation column (e.g. "Rewindng")
-        operation_pattern = "Rewind" if service_type == "Rewinder" else "Sheeting"
-        checkbox_rows = add_charge_df[
-            (add_charge_df["Input Method"].str.strip() == "Checkbox")
-            & (add_charge_df["Operation"].str.strip().str.contains(operation_pattern, case=False, na=False))
-        ]
-        if not checkbox_rows.empty:
-            st.subheader("Additional Charges")
-            # Right-align checkboxes using a spacer column
-            _, chk_col = st.columns([1, 2])
-            with chk_col:
+        # Additional Charges checkboxes (in right column)
+        checked_items = []
+        if add_charge_df is not None:
+            operation_pattern = "Rewind" if service_type == "Rewinder" else "Sheeting"
+            checkbox_rows = add_charge_df[
+                (add_charge_df["Input Method"].str.strip() == "Checkbox")
+                & (add_charge_df["Operation"].str.strip().str.contains(operation_pattern, case=False, na=False))
+            ]
+            if not checkbox_rows.empty:
+                st.markdown("**Additional Charges**")
                 for _, row in checkbox_rows.iterrows():
                     param = str(row["Parameter"]).strip()
                     if st.checkbox(param, key=f"chk_{param}"):
                         checked_items.append(param)
+        if not checked_items:
+            checked_items = []
 
     st.divider()
 
