@@ -494,8 +494,9 @@ def main():
         calculate_clicked = st.button("Calculate Quote", type="primary", use_container_width=True)
     with btn_col2:
         if st.button("Reset", use_container_width=True):
-            st.session_state.quote_result = None
-            st.session_state.quote_params = {}
+            # Clear all session state (widget values, results, params)
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
             st.rerun()
 
     if calculate_clicked:
