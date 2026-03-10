@@ -21,6 +21,8 @@ if "quote_params" not in st.session_state:
     st.session_state.quote_params = {}
 if "quote_result" not in st.session_state:
     st.session_state.quote_result = None
+if "reset_counter" not in st.session_state:
+    st.session_state.reset_counter = 0
 
 # Secrets
 try:
@@ -322,6 +324,9 @@ def calculate_additional_charges(checked_items, add_charge_df, quantity_lbs):
 def main():
     st.title("NCC Converting Quote")
 
+    # Key suffix — changes on Reset to force fresh widgets
+    ks = f"_{st.session_state.reset_counter}"
+
     # Load data
     paper_df = load_paper_info()
     machine_df = load_machine_info()
@@ -369,7 +374,8 @@ def main():
         "Select service type:",
         options=["Rewinding", "Sheeting"],
         horizontal=True,
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        key=f"service_selection{ks}"
     )
 
     # Determine service type
@@ -389,21 +395,24 @@ def main():
         product_group = st.selectbox(
             "Product Group",
             options=product_groups,
-            index=0 if product_groups else None
+            index=0 if product_groups else None,
+            key=f"product_group{ks}"
         )
 
         # Basis Weight with unit toggle
         basis_weight_unit = st.radio(
             "Basis Weight Unit",
             options=["LBS", "GSM"],
-            horizontal=True
+            horizontal=True,
+            key=f"basis_weight_unit{ks}"
         )
         basis_weight = st.number_input(
             f"Basis Weight ({basis_weight_unit})",
             min_value=0.0,
             value=0.0,
             step=0.1,
-            format="%.2f"
+            format="%.2f",
+            key=f"basis_weight{ks}"
         )
 
         caliper = st.number_input(
@@ -411,7 +420,8 @@ def main():
             min_value=0.0,
             value=0.0,
             step=0.1,
-            format="%.2f"
+            format="%.2f",
+            key=f"caliper{ks}"
         )
 
         cut_width = st.number_input(
@@ -419,7 +429,8 @@ def main():
             min_value=0.0,
             value=0.0,
             step=0.25,
-            format="%.2f"
+            format="%.2f",
+            key=f"cut_width{ks}"
         )
 
         if service_type == "Sheeter":
@@ -428,7 +439,8 @@ def main():
                 min_value=0.0,
                 value=0.0,
                 step=0.25,
-                format="%.2f"
+                format="%.2f",
+                key=f"sheet_length{ks}"
             )
         else:
             sheet_length = 0.0
@@ -439,7 +451,8 @@ def main():
             min_value=0.0,
             value=0.0,
             step=0.25,
-            format="%.2f"
+            format="%.2f",
+            key=f"parent_roll_width{ks}"
         )
 
         parent_roll_diameter = st.number_input(
@@ -447,7 +460,8 @@ def main():
             min_value=0.0,
             value=0.0,
             step=0.5,
-            format="%.2f"
+            format="%.2f",
+            key=f"parent_roll_diameter{ks}"
         )
 
         parent_roll_core = st.number_input(
@@ -456,7 +470,8 @@ def main():
             value=3.0,
             step=0.5,
             format="%.2f",
-            help="Default is 3 inches if not specified"
+            help="Default is 3 inches if not specified",
+            key=f"parent_roll_core{ks}"
         )
 
         quantity_lbs = st.number_input(
@@ -464,7 +479,8 @@ def main():
             min_value=0.0,
             value=0.0,
             step=100.0,
-            format="%.0f"
+            format="%.0f",
+            key=f"quantity_lbs{ks}"
         )
 
         # Additional Charges checkboxes (in right column)
@@ -479,7 +495,7 @@ def main():
                 st.markdown("**Additional Charges**")
                 for _, row in checkbox_rows.iterrows():
                     param = str(row["Parameter"]).strip()
-                    if st.checkbox(param, key=f"chk_{param}"):
+                    if st.checkbox(param, key=f"chk_{param}{ks}"):
                         checked_items.append(param)
         if not checked_items:
             checked_items = []
@@ -494,9 +510,9 @@ def main():
         calculate_clicked = st.button("Calculate Quote", type="primary", use_container_width=True)
     with btn_col2:
         if st.button("Reset", use_container_width=True):
-            # Clear all session state (widget values, results, params)
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+            st.session_state.reset_counter += 1
+            st.session_state.quote_result = None
+            st.session_state.quote_params = {}
             st.rerun()
 
     if calculate_clicked:
