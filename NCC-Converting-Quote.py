@@ -242,8 +242,9 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             num_roll_changes = int(np.ceil(num_rolls / rolls_running)) if rolls_running > 0 else num_rolls
         roll_change_hours = roll_change_hrs * num_roll_changes
 
-        # Step 6: Total hours (processing + roll changes + setup)
+        # Step 6: Total hours (processing + roll changes + setup), 1-hour minimum
         total_hours = processing_hours + roll_change_hours + setup_hrs
+        total_hours = max(total_hours, 1.0)
 
         # Step 7: Total cost
         total_cost = total_hours * hourly_rate
