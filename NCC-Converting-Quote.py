@@ -201,8 +201,12 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             density_factor
         )
 
+        # Use 20,000 lb minimum for rate calculation so the base rate
+        # stays flat; order-qty bracket upcharges handle smaller orders.
+        rate_qty = max(quantity_lbs, 20000)
+
         # Step 2: Calculate number of rolls (round up - no partial rolls)
-        num_rolls = int(np.ceil(quantity_lbs / avg_roll_weight)) if avg_roll_weight > 0 else 1
+        num_rolls = int(np.ceil(rate_qty / avg_roll_weight)) if avg_roll_weight > 0 else 1
         num_rolls = max(1, num_rolls)  # At least 1 roll
 
         # Step 2b: Determine rolls running at one time (for sheeting)
@@ -226,7 +230,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         )
 
         # Step 4: Calculate processing hours
-        processing_hours = quantity_lbs / lbs_per_hour if lbs_per_hour > 0 else 0
+        processing_hours = rate_qty / lbs_per_hour if lbs_per_hour > 0 else 0
 
         # Step 5: Calculate roll change hours
         # Rewinding: roll changes = number of parent rolls × Roll_Change_Hrs
@@ -244,8 +248,8 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Step 7: Total cost
         total_cost = total_hours * hourly_rate
 
-        # Step 8: $/CWT
-        base_rate_cwt = (total_cost / quantity_lbs) * 100 if quantity_lbs > 0 else 0
+        # Step 8: $/CWT (always based on rate_qty so base rate is flat)
+        base_rate_cwt = (total_cost / rate_qty) * 100 if rate_qty > 0 else 0
 
         # Populate result
         result["success"] = True
@@ -343,11 +347,12 @@ def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
         elif 10000 <= quantity_lbs < 20000:
             multiplier = 1.15
 
-    adjusted_base = base_rate_cwt * multiplier
+    adjusted_base = base_rate_cwt  # base rate stays unchanged
     if multiplier > 1.0:
-        upcharge_amt = adjusted_base - base_rate_cwt
+        upcharge_amt = round(base_rate_cwt * (multiplier - 1.0), 2)
         pct = int((multiplier - 1.0) * 100)
-        breakdown.append((f"Order Qty Adjustment (+{pct}%)", round(upcharge_amt, 2)))
+        auto_charges += upcharge_amt
+        breakdown.append((f"Order Qty Adjustment (+{pct}%)", upcharge_amt))
 
     # --- Trim charge (Sheeting only) ---
     if service_type != "Rewinder" and parent_roll_width > 0 and cut_width > 0:
