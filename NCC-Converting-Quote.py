@@ -242,15 +242,21 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             num_roll_changes = int(np.ceil(num_rolls / rolls_running)) if rolls_running > 0 else num_rolls
         roll_change_hours = roll_change_hrs * num_roll_changes
 
-        # Step 6: Total hours (processing + roll changes + setup), 1-hour minimum
+        # Step 6: Total hours (processing + roll changes + setup)
         total_hours = processing_hours + roll_change_hours + setup_hrs
-        total_hours = max(total_hours, 1.0)
 
         # Step 7: Total cost
         total_cost = total_hours * hourly_rate
 
         # Step 8: $/CWT (always based on rate_qty so base rate is flat)
         base_rate_cwt = (total_cost / rate_qty) * 100 if rate_qty > 0 else 0
+
+        # Step 9: 1-hour minimum charge based on actual order quantity
+        # If the actual order's cost at the base rate is less than 1 hour,
+        # bump the rate so the customer pays for at least 1 hour.
+        min_rate_cwt = (hourly_rate / quantity_lbs) * 100 if quantity_lbs > 0 else 0
+        if base_rate_cwt < min_rate_cwt:
+            base_rate_cwt = min_rate_cwt
 
         # Populate result
         result["success"] = True
