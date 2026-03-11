@@ -670,12 +670,39 @@ def main():
             add_total = result.get("additional_charges_cwt", 0)
             has_extras = (adjusted_base != result["base_rate_cwt"]) or auto_total > 0 or add_total > 0
 
-            col_r1, col_r2 = st.columns(2)
+            # Compute sheeting metrics for display
+            details = result.get("details", {})
+            mweight = None
+            price_per_m = None
+            if details.get("equip_type") == "Sheeter":
+                params = st.session_state.quote_params
+                s_width = params.get("cut_width", 0)
+                s_length = params.get("sheet_length", 0)
+                area_in = details.get("area_in", 0)
+                bw_lbs = details.get("basis_weight_lbs", 0)
+                if s_width > 0 and s_length > 0 and area_in > 0 and bw_lbs > 0:
+                    mweight = round(((s_width * s_length) / area_in) * bw_lbs * 2)
+                    price_per_m = total_rate * 0.01 * mweight
+
+            # Display metrics row
+            if mweight is not None:
+                col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            else:
+                col_r1, col_r2 = st.columns(2)
+
             with col_r1:
                 st.metric(label="Base Rate", value=f"${result['base_rate_cwt']:.2f} / CWT")
             with col_r2:
                 if has_extras:
                     st.metric(label="Total Rate", value=f"${total_rate:.2f} / CWT")
+                else:
+                    st.metric(label="Total Rate", value=f"${result['base_rate_cwt']:.2f} / CWT")
+
+            if mweight is not None:
+                with col_r3:
+                    st.metric(label="MWT", value=f"{mweight:,} lbs")
+                with col_r4:
+                    st.metric(label="Price / M Sheets", value=f"${price_per_m:,.2f}")
 
             # Rate breakdown
             if has_extras:
@@ -693,21 +720,6 @@ def main():
                     st.write(f"- {name}: +${amt:.2f}/CWT")
 
                 st.write(f"- **Total Rate: ${total_rate:.2f}/CWT**")
-
-            # Sheeting-only: MWT and Price per M Sheets
-            details = result.get("details", {})
-            if details.get("equip_type") == "Sheeter":
-                params = st.session_state.quote_params
-                s_width = params.get("cut_width", 0)
-                s_length = params.get("sheet_length", 0)
-                area_in = details.get("area_in", 0)
-                bw_lbs = details.get("basis_weight_lbs", 0)
-                if s_width > 0 and s_length > 0 and area_in > 0 and bw_lbs > 0:
-                    mweight = round(((s_width * s_length) / area_in) * bw_lbs * 2)
-                    price_per_m = total_rate * 0.01 * mweight
-                    st.markdown("**Sheet Pricing:**")
-                    st.write(f"- MWT (lbs per 1,000 sheets): {mweight:,}")
-                    st.write(f"- Price per M Sheets: ${price_per_m:,.2f}")
 
             # Show calculation details in expander
             with st.expander("View Calculation Details"):
