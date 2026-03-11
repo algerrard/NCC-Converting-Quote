@@ -39,6 +39,7 @@ CONTAINER_NAME = "data"
 PAPER_INFO_BLOB = "PaperInfoNCC.csv"
 MACHINE_INFO_BLOB = "MachineInfo.csv"
 ADD_CHARGE_BLOB = "NCC Add Charge Schedule.csv"
+ORDER_SIZE_BLOB = "Order Size Adjustments.csv"
 
 # =========================================================
 # DATA LOADING
@@ -85,6 +86,23 @@ def load_add_charges():
         return df
     except Exception as e:
         st.error(f"Error loading Add Charge Schedule: {str(e)}")
+        return None
+
+
+@st.cache_data(ttl=3600)
+def load_order_size_adjustments():
+    """Load Order Size Adjustments.csv from Azure Blob Storage."""
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+        blob_client = blob_service_client.get_blob_client(container=CONTAINER_NAME, blob=ORDER_SIZE_BLOB)
+        csv_data = blob_client.download_blob().readall().decode("utf-8")
+        df = pd.read_csv(StringIO(csv_data))
+        df.columns = df.columns.str.strip()
+        # Parse Adjustment column (e.g., "40%" -> 0.40)
+        df["Adjustment_Pct"] = df["Adjustment"].astype(str).str.replace("%", "").astype(float) / 100
+        return df
+    except Exception as e:
+        st.error(f"Error loading Order Size Adjustments: {str(e)}")
         return None
 
 
@@ -324,7 +342,7 @@ def calculate_additional_charges(checked_items, add_charge_df, quantity_lbs):
 
 def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
                            parent_roll_width, cut_width, sheet_length,
-                           hourly_rate):
+                           hourly_rate, order_size_df):
     """
     Apply order-qty bracket multipliers, 1-hour minimum, and auto-calculated surcharges.
 
@@ -333,27 +351,22 @@ def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
     breakdown = []
     auto_charges = 0.0
 
-    # --- Order Qty bracket upcharge ---
-    multiplier = 1.0
-    if service_type == "Rewinder":
-        if 2000 <= quantity_lbs < 10000:
-            multiplier = 1.40
-        elif 10000 <= quantity_lbs < 20000:
-            multiplier = 1.30
-    else:  # Sheeter (or Both)
-        if 2000 <= quantity_lbs < 5000:
-            multiplier = 1.30
-        elif 5000 <= quantity_lbs < 10000:
-            multiplier = 1.20
-        elif 10000 <= quantity_lbs < 20000:
-            multiplier = 1.15
-
+    # --- Order Qty bracket upcharge (from Order Size Adjustments table) ---
     adjusted_base = base_rate_cwt  # base rate stays unchanged
-    if multiplier > 1.0:
-        upcharge_amt = round(base_rate_cwt * (multiplier - 1.0), 2)
-        pct = int((multiplier - 1.0) * 100)
-        auto_charges += upcharge_amt
-        breakdown.append((f"Order Qty Adjustment (+{pct}%)", upcharge_amt))
+    if order_size_df is not None:
+        machine_group = "Rewinding" if service_type == "Rewinder" else "Sheeting"
+        qty_rows = order_size_df[
+            (order_size_df["MachineGroup"].str.strip() == machine_group)
+            & (order_size_df["AdjDescription"].str.strip() == "OrderQty")
+            & (order_size_df["Minimum"] <= quantity_lbs)
+            & (order_size_df["Maximum"] >= quantity_lbs)
+        ]
+        if not qty_rows.empty:
+            adj_pct = qty_rows.iloc[0]["Adjustment_Pct"]
+            if adj_pct > 0:
+                upcharge_amt = round(base_rate_cwt * adj_pct, 2)
+                auto_charges += upcharge_amt
+                breakdown.append((f"Order Qty Adjustment (+{int(adj_pct * 100)}%)", upcharge_amt))
 
     # --- 1-hour minimum charge ---
     # After order qty upcharge, check if (base + upcharge) × qty covers 1 hour.
@@ -399,6 +412,7 @@ def main():
     paper_df = load_paper_info()
     machine_df = load_machine_info()
     add_charge_df = load_add_charges()
+    order_size_df = load_order_size_adjustments()
 
     if paper_df is None or machine_df is None:
         st.error("Failed to load required data. Please check Azure connection.")
@@ -646,7 +660,7 @@ def main():
                 adjusted_base, auto_total, auto_breakdown = calculate_auto_charges(
                     result["base_rate_cwt"], service_type, quantity_lbs,
                     parent_roll_width, cut_width, sheet_length,
-                    result["details"]["hourly_rate"]
+                    result["details"]["hourly_rate"], order_size_df
                 )
                 result["adjusted_base_cwt"] = adjusted_base
                 result["auto_charges_cwt"] = auto_total
