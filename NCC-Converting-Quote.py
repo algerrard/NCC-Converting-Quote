@@ -694,6 +694,21 @@ def main():
 
                 st.write(f"- **Total Rate: ${total_rate:.2f}/CWT**")
 
+            # Sheeting-only: MWT and Price per M Sheets
+            details = result.get("details", {})
+            if details.get("equip_type") == "Sheeter":
+                params = st.session_state.quote_params
+                s_width = params.get("cut_width", 0)
+                s_length = params.get("sheet_length", 0)
+                area_in = details.get("area_in", 0)
+                bw_lbs = details.get("basis_weight_lbs", 0)
+                if s_width > 0 and s_length > 0 and area_in > 0 and bw_lbs > 0:
+                    mweight = round(((s_width * s_length) / area_in) * bw_lbs * 2)
+                    price_per_m = total_rate * 0.01 * mweight
+                    st.markdown("**Sheet Pricing:**")
+                    st.write(f"- MWT (lbs per 1,000 sheets): {mweight:,}")
+                    st.write(f"- Price per M Sheets: ${price_per_m:,.2f}")
+
             # Show calculation details in expander
             with st.expander("View Calculation Details"):
                 details = result["details"]
