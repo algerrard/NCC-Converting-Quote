@@ -98,6 +98,8 @@ def load_order_size_adjustments():
         csv_data = blob_client.download_blob().readall().decode("utf-8")
         df = pd.read_csv(StringIO(csv_data))
         df.columns = df.columns.str.strip()
+        df["Minimum"] = pd.to_numeric(df["Minimum"], errors="coerce")
+        df["Maximum"] = pd.to_numeric(df["Maximum"], errors="coerce")
         # Parse Adjustment column (e.g., "40%" -> 0.40)
         df["Adjustment_Pct"] = df["Adjustment"].astype(str).str.replace("%", "").astype(float) / 100
         return df
