@@ -492,16 +492,15 @@ def main():
             key=f"caliper{ks}"
         )
 
-        cut_width = st.number_input(
-            "Cut Width Total (IN)",
-            min_value=0.0,
-            value=0.0,
-            step=0.25,
-            format="%.2f",
-            key=f"cut_width{ks}"
-        )
-
         if service_type == "Sheeter":
+            sheet_width = st.number_input(
+                "Sheet Width (IN)",
+                min_value=0.0,
+                value=0.0,
+                step=0.25,
+                format="%.2f",
+                key=f"sheet_width{ks}"
+            )
             sheet_length = st.number_input(
                 "Sheet Length (IN)",
                 min_value=0.0,
@@ -511,6 +510,15 @@ def main():
                 key=f"sheet_length{ks}"
             )
         else:
+            cut_width = st.number_input(
+                "Cut Width Total (IN)",
+                min_value=0.0,
+                value=0.0,
+                step=0.25,
+                format="%.2f",
+                key=f"cut_width{ks}"
+            )
+            sheet_width = 0.0
             sheet_length = 0.0
 
     with col2:
@@ -567,6 +575,16 @@ def main():
         if not checked_items:
             checked_items = []
 
+    # For sheeting, calculate num_out and cut_width_total from sheet_width
+    if service_type == "Sheeter" and sheet_width > 0 and parent_roll_width > 0:
+        num_out = int(parent_roll_width // sheet_width)
+        cut_width = sheet_width * num_out
+        trim = parent_roll_width - cut_width
+        st.info(f"**{num_out} out** — Cut Width Total: {cut_width:.2f}\" | Trim: {trim:.2f}\"")
+    elif service_type == "Sheeter":
+        num_out = 0
+        cut_width = 0.0
+
     st.divider()
 
     # =========================================================
@@ -587,7 +605,9 @@ def main():
         errors = []
         if basis_weight <= 0:
             errors.append("Basis Weight must be greater than 0")
-        if cut_width <= 0:
+        if service_type == "Sheeter" and sheet_width <= 0:
+            errors.append("Sheet Width must be greater than 0")
+        elif service_type != "Sheeter" and cut_width <= 0:
             errors.append("Cut Width Total must be greater than 0")
         if parent_roll_width <= 0:
             errors.append("Parent Roll Width must be greater than 0")
@@ -609,6 +629,7 @@ def main():
                 "basis_weight_unit": basis_weight_unit,
                 "caliper": caliper,
                 "cut_width": cut_width,
+                "sheet_width": sheet_width,
                 "sheet_length": sheet_length,
                 "parent_roll_width": parent_roll_width,
                 "parent_roll_diameter": parent_roll_diameter,
@@ -676,7 +697,7 @@ def main():
             price_per_m = None
             if details.get("equip_type") == "Sheeter":
                 params = st.session_state.quote_params
-                s_width = params.get("cut_width", 0)
+                s_width = params.get("sheet_width", 0)
                 s_length = params.get("sheet_length", 0)
                 area_in = details.get("area_in", 0)
                 bw_lbs = details.get("basis_weight_lbs", 0)
