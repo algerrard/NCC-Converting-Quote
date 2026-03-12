@@ -271,18 +271,6 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Step 8: $/CWT (always based on rate_qty so base rate is flat)
         base_rate_cwt = (total_cost / rate_qty) * 100 if rate_qty > 0 else 0
 
-        # Calculate actual order values (for display)
-        actual_num_rolls = int(np.ceil(quantity_lbs / avg_roll_weight)) if avg_roll_weight > 0 else 1
-        actual_num_rolls = max(1, actual_num_rolls)
-        actual_processing_hours = quantity_lbs / lbs_per_hour if lbs_per_hour > 0 else 0
-        if equip_type == "Rewinder":
-            actual_roll_changes = actual_num_rolls
-        else:
-            actual_roll_changes = int(np.ceil(actual_num_rolls / rolls_running)) if rolls_running > 0 else actual_num_rolls
-        actual_roll_change_hours = roll_change_hrs * actual_roll_changes
-        actual_total_hours = actual_processing_hours + actual_roll_change_hours + setup_hrs
-        actual_total_cost = actual_total_hours * hourly_rate
-
         # Populate result
         result["success"] = True
         result["base_rate_cwt"] = round(base_rate_cwt, 2)
@@ -299,14 +287,15 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             "roll_change_hrs": roll_change_hrs,
             "setup_hrs": setup_hrs,
             "avg_roll_weight": round(avg_roll_weight, 2),
-            "num_rolls": actual_num_rolls,
+            "num_rolls": num_rolls,
             "rolls_running": rolls_running,
-            "num_roll_changes": actual_roll_changes,
+            "num_roll_changes": num_roll_changes,
             "lbs_per_hour": round(lbs_per_hour, 2),
-            "processing_hours": round(actual_processing_hours, 4),
-            "roll_change_hours": round(actual_roll_change_hours, 4),
-            "total_hours": round(actual_total_hours, 4),
-            "total_cost": round(actual_total_cost, 2),
+            "processing_hours": round(processing_hours, 4),
+            "roll_change_hours": round(roll_change_hours, 4),
+            "total_hours": round(total_hours, 4),
+            "total_cost": round(total_cost, 2),
+            "rate_qty": rate_qty,
             "quantity_lbs": quantity_lbs,
             "service_type": service_type,
             "equip_type": equip_type
@@ -781,7 +770,8 @@ def main():
                     st.write(f"- Product Group: {details['product_group']}")
                     st.write(f"- Service Type: {details['service_type']}")
                     st.write(f"- Basis Weight (LBS): {details['basis_weight_lbs']}")
-                    st.write(f"- Quantity: {details['quantity_lbs']:,.0f} lbs")
+                    st.write(f"- Order Quantity: {details['quantity_lbs']:,.0f} lbs")
+                    st.write(f"- Rate Basis Quantity: {details['rate_qty']:,.0f} lbs")
 
                     st.markdown("**Paper Information**")
                     st.write(f"- Area (IN): {details['area_in']}")
@@ -795,14 +785,15 @@ def main():
                     st.write(f"- Hourly Rate: ${details['hourly_rate']:.2f}")
                     st.write(f"- Roll Change (hrs): {details['roll_change_hrs']}")
 
-                    st.markdown("**Calculated Values**")
+                    st.markdown("**Calculated Values (at Rate Basis Qty)**")
                     st.write(f"- Avg Roll Weight: {details['avg_roll_weight']:,.2f} lbs")
-                    st.write(f"- Number of Rolls: {details['num_rolls']:.2f}")
+                    st.write(f"- Number of Rolls: {details['num_rolls']}")
                     st.write(f"- Lbs Per Hour: {details['lbs_per_hour']:,.2f}")
                     st.write(f"- Processing Hours: {details['processing_hours']:.4f}")
                     st.write(f"- Roll Change Hours: {details['roll_change_hours']:.4f}")
                     st.write(f"- Total Hours: {details['total_hours']:.4f}")
                     st.write(f"- Total Cost: ${details['total_cost']:.2f}")
+                    st.write(f"- **Base Rate: ${details['total_cost']:.2f} / {details['rate_qty']:,.0f} lbs × 100 = ${result['base_rate_cwt']:.2f}/CWT**")
         else:
             st.error(f"Calculation Error: {result['error']}")
 
