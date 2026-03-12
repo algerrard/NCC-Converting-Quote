@@ -31,8 +31,8 @@ try:
         AZURE_CONNECTION_STRING = st.secrets["AZURE_CONNECTION_STRING"]
     if not AZURE_CONNECTION_STRING:
         raise KeyError("AZURE_CONNECTION_STRING")
-except KeyError as e:
-    st.error(f"Missing secret: {e}")
+except Exception as e:
+    st.error(f"Missing secret: AZURE_CONNECTION_STRING. Set it as an environment variable or in .streamlit/secrets.toml")
     st.stop()
 
 CONTAINER_NAME = "data"
