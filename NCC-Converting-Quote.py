@@ -457,10 +457,7 @@ def main():
     # =========================================================
     # INPUT SECTION
     # =========================================================
-    st.header("Quote Parameters")
-
     # Service Selection with larger font
-    st.subheader("Service Type")
     st.markdown("""
         <style>
         div[data-testid="stRadio"] > label {
