@@ -24,15 +24,15 @@ if "quote_result" not in st.session_state:
 if "reset_counter" not in st.session_state:
     st.session_state.reset_counter = 0
 
-# Secrets
-try:
-    AZURE_CONNECTION_STRING = os.environ.get("AZURE_CONNECTION_STRING")
-    if not AZURE_CONNECTION_STRING:
+# Secrets — check env var first (Azure App Service), then st.secrets (Streamlit Cloud)
+AZURE_CONNECTION_STRING = os.environ.get("AZURE_CONNECTION_STRING")
+if not AZURE_CONNECTION_STRING:
+    try:
         AZURE_CONNECTION_STRING = st.secrets["AZURE_CONNECTION_STRING"]
-    if not AZURE_CONNECTION_STRING:
-        raise KeyError("AZURE_CONNECTION_STRING")
-except KeyError as e:
-    st.error(f"Missing secret: {e}")
+    except Exception:
+        AZURE_CONNECTION_STRING = None
+if not AZURE_CONNECTION_STRING:
+    st.error("Missing AZURE_CONNECTION_STRING. Set as env var or in .streamlit/secrets.toml")
     st.stop()
 
 CONTAINER_NAME = "data"
