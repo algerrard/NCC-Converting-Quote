@@ -7,6 +7,4 @@ font="sans serif"
 
 [server]
 maxUploadSize = 200
-port = 8000
-address = "0.0.0.0"
 headless = true
