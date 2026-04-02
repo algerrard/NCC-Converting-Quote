@@ -37,7 +37,7 @@ if not AZURE_CONNECTION_STRING:
 
 CONTAINER_NAME = "data"
 PAPER_INFO_BLOB = "PaperInfoNCC.csv"
-MACHINE_INFO_BLOB = "MachineInfo.csv"
+MACHINE_INFO_BLOB = "MachineInfo-NCC.csv"
 ADD_CHARGE_BLOB = "NCC Add Charge Schedule.csv"
 ORDER_SIZE_BLOB = "Order Size Adjustments.csv"
 
