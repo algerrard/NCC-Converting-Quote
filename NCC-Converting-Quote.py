@@ -457,10 +457,6 @@ def main():
         st.error("Failed to load required data. Please check Azure connection.")
         st.stop()
 
-    # DEBUG — remove after verifying MachineInfo-NCC loads correctly
-    with st.expander("DEBUG: MachineInfo-NCC data"):
-        st.dataframe(machine_df)
-
     # Get unique Product Groups for dropdown
     # Try to find the Product Group column (may have different name)
     product_group_col = None
