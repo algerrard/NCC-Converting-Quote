@@ -206,12 +206,30 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         machine_row = machine_row.iloc[0]
 
         # Get machine parameters
-        avg_speed = float(machine_row.get("AvgSpeed(FPM)", machine_row.get("avgspeed(FPM)", machine_row.get("AvgSpeed", 2200))) or 2200)
-        hourly_rate = clean_currency(machine_row.get("HourlyRate"), 273)
+        # Read machine parameters — raise clear errors instead of silent defaults
+        avg_speed = machine_row.get("AvgSpeed(FPM)")
+        if pd.isna(avg_speed) or float(avg_speed) == 0:
+            result["error"] = f"AvgSpeed(FPM) is missing or zero for '{equip_type}' in MachineInfo-NCC"
+            return result
+        avg_speed = float(avg_speed)
+
+        raw_rate = machine_row.get("HourlyRate")
+        if pd.isna(raw_rate) or clean_currency(raw_rate, 0) == 0:
+            result["error"] = f"HourlyRate is missing or zero for '{equip_type}' in MachineInfo-NCC"
+            return result
+        hourly_rate = clean_currency(raw_rate, 0)
+
         raw_rc = machine_row.get("Roll_Change_Hrs")
-        roll_change_hrs = float(raw_rc) if pd.notna(raw_rc) else 0.25
+        if pd.isna(raw_rc):
+            result["error"] = f"Roll_Change_Hrs is missing for '{equip_type}' in MachineInfo-NCC"
+            return result
+        roll_change_hrs = float(raw_rc)
+
         raw_su = machine_row.get("Setup_Hrs")
-        setup_hrs = float(raw_su) if pd.notna(raw_su) else 0.5
+        if pd.isna(raw_su):
+            result["error"] = f"Setup_Hrs is missing for '{equip_type}' in MachineInfo-NCC"
+            return result
+        setup_hrs = float(raw_su)
 
         # Step 1: Calculate average roll weight
         avg_roll_weight = calculate_roll_weight(
