@@ -765,10 +765,7 @@ def main():
             with col_r1:
                 st.metric(label="Base Rate", value=f"${result['base_rate_cwt']:.2f} / CWT")
             with col_r2:
-                if has_extras:
-                    st.metric(label="Total Rate", value=f"${total_rate:.2f} / CWT")
-                else:
-                    st.metric(label="Total Rate", value=f"${result['base_rate_cwt']:.2f} / CWT")
+                st.metric(label="Total Rate", value=f"${total_rate:.2f} / CWT")
 
             if mweight is not None:
                 with col_r3:
