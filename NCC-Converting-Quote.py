@@ -713,7 +713,8 @@ def main():
                 result["additional_breakdown"] = add_breakdown
 
                 # Total = adjusted base + auto surcharges + checkbox surcharges
-                result["total_rate_cwt"] = round(adjusted_base + auto_total + add_total, 2)
+                # Round to nearest $0.25
+                result["total_rate_cwt"] = round((adjusted_base + auto_total + add_total) * 4) / 4
             else:
                 result["adjusted_base_cwt"] = 0.0
                 result["auto_charges_cwt"] = 0.0
