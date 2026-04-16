@@ -16,6 +16,15 @@ from reportlab.lib.units import inch
 # =========================================================
 st.set_page_config(page_title="NCC Converting Quote", page_icon="📦", layout="wide")
 
+st.markdown("""
+    <script src="https://res.cdn.office.net/teams-js/2.0.0/js/MicrosoftTeams.min.js"></script>
+    <script>
+        microsoftTeams.app.initialize();
+    </script>
+""", unsafe_allow_html=True)
+
+# rest of your app below...
+
 # Session state initialization
 if "quote_params" not in st.session_state:
     st.session_state.quote_params = {}
