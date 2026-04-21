@@ -240,6 +240,12 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             return result
         setup_hrs = float(raw_su)
 
+        raw_min = machine_row.get("Minimum Charge")
+        if pd.isna(raw_min) or clean_currency(raw_min, 0) == 0:
+            result["error"] = f"Minimum Charge is missing or zero for '{equip_type}' in MachineInfo-NCC"
+            return result
+        minimum_charge = clean_currency(raw_min, 0)
+
         # Step 1: Calculate average roll weight
         avg_roll_weight = calculate_roll_weight(
             parent_roll_diameter,
@@ -325,6 +331,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             "hourly_rate": hourly_rate,
             "roll_change_hrs": roll_change_hrs,
             "setup_hrs": setup_hrs,
+            "minimum_charge": minimum_charge,
             "avg_roll_weight": round(avg_roll_weight, 2),
             "rolls_running": rolls_running,
             "lbs_per_hour": round(lbs_per_hour, 2),
@@ -390,9 +397,9 @@ def calculate_additional_charges(checked_items, add_charge_df, quantity_lbs):
 
 def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
                            parent_roll_width, cut_width, sheet_length,
-                           hourly_rate, order_size_df):
+                           minimum_charge, order_size_df):
     """
-    Apply order-qty bracket multipliers, 1-hour minimum, and auto-calculated surcharges.
+    Apply order-qty bracket multipliers, machine minimum charge, and auto-calculated surcharges.
 
     Returns (adjusted_base_rate, auto_charges_cwt, breakdown_list).
     """
@@ -416,13 +423,14 @@ def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
                 auto_charges += upcharge_amt
                 breakdown.append((f"Order Qty Adjustment (+{int(adj_pct * 100)}%)", upcharge_amt))
 
-    # --- 1-hour minimum charge ---
-    # After order qty upcharge, check if (base + upcharge) × qty covers 1 hour.
-    # If not, replace all prior charges with a single minimum line.
+    # --- Machine minimum charge ---
+    # After order qty upcharge, check if (base + upcharge) × qty covers the
+    # machine's minimum charge. If not, replace all prior charges with a
+    # single minimum line.
     subtotal_cwt = adjusted_base + auto_charges
     order_total = (subtotal_cwt * quantity_lbs) / 100
-    if order_total < hourly_rate and quantity_lbs > 0:
-        min_rate_cwt = round((hourly_rate / quantity_lbs) * 100, 2)
+    if order_total < minimum_charge and quantity_lbs > 0:
+        min_rate_cwt = round((minimum_charge / quantity_lbs) * 100, 2)
         min_upcharge = round(min_rate_cwt - adjusted_base, 2)
         auto_charges = min_upcharge
         breakdown = [("Minimum order charge applied", min_upcharge)]
@@ -705,7 +713,7 @@ def main():
                 adjusted_base, auto_total, auto_breakdown = calculate_auto_charges(
                     result["base_rate_cwt"], service_type, quantity_lbs,
                     parent_roll_width, cut_width, sheet_length,
-                    result["details"]["hourly_rate"], order_size_df
+                    result["details"]["minimum_charge"], order_size_df
                 )
                 result["adjusted_base_cwt"] = adjusted_base
                 result["auto_charges_cwt"] = auto_total
