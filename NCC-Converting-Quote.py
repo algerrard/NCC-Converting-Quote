@@ -935,7 +935,7 @@ def main():
             csv_lines.append(f"Product Group,{quote_params.get('product_group', '')}")
             csv_lines.append(f"Basis Weight,{quote_params.get('basis_weight', 0)} {quote_params.get('basis_weight_unit', '')}")
             csv_lines.append(f"Caliper,{quote_params.get('caliper', 0):.3f}")
-            csv_lines.append(f"Quantity (lbs),{qty_lbs:,.0f}")
+            csv_lines.append(f"Quantity (lbs),{qty_lbs:.0f}")
             csv_lines.append(f"Parent Roll Width,{quote_params.get('parent_roll_width', 0):.2f}")
             csv_lines.append(f"Parent Roll Diameter,{quote_params.get('parent_roll_diameter', 0):.2f}")
             csv_lines.append(f"Parent Roll Core,{quote_params.get('parent_roll_core', 0):.2f}")
@@ -955,10 +955,10 @@ def main():
             csv_lines.append(f"Total Rate,${total_rate:.2f}")
 
             csv_lines.append("")
-            csv_lines.append(f"Order Total,${order_total:,.2f}")
+            csv_lines.append(f"Order Total,${order_total:.2f}")
             if mweight is not None:
-                csv_lines.append(f"MWT (lbs/1000 sheets),{mweight:,}")
-                csv_lines.append(f"Price / M Sheets,${price_per_m:,.2f}")
+                csv_lines.append(f"MWT (lbs/1000 sheets),{mweight}")
+                csv_lines.append(f"Price / M Sheets,${price_per_m:.2f}")
 
             csv_body = "\n".join(csv_lines) + "\n"
 
