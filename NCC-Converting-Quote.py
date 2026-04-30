@@ -456,6 +456,121 @@ def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
 
 
 # =========================================================
+# PDF REPORT GENERATION
+# =========================================================
+def generate_quote_pdf(params, result):
+    """Generate a PDF report for an NCC converting quote. Returns bytes."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    styles = getSampleStyleSheet()
+    story = []
+
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Title'], fontSize=18, spaceAfter=20)
+    story.append(Paragraph("Norkol NCC Converting Quote", title_style))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+
+    # Quote Details
+    story.append(Paragraph("Quote Details", styles['Heading2']))
+    story.append(Spacer(1, 10))
+
+    is_sheeter = params.get("service_type") == "Sheeter"
+    bw_unit = params.get("basis_weight_unit", "")
+
+    detail_data = [
+        ["Service Type:", "Sheeting" if is_sheeter else "Rewinding"],
+        ["Product Group:", str(params.get("product_group", ""))],
+        ["Basis Weight:", f"{params.get('basis_weight', 0)} {bw_unit}"],
+        ["Caliper:", f"{params.get('caliper', 0):.3f}\""],
+        ["Quantity:", f"{params.get('quantity_lbs', 0):,.0f} lbs"],
+        ["Parent Roll Width:", f"{params.get('parent_roll_width', 0):.2f}\""],
+        ["Parent Roll Diameter:", f"{params.get('parent_roll_diameter', 0):.2f}\""],
+        ["Parent Roll Core:", f"{params.get('parent_roll_core', 0):.2f}\""],
+    ]
+    if is_sheeter:
+        detail_data.append(["Sheet Width:", f"{params.get('sheet_width', 0):.2f}\""])
+        detail_data.append(["Sheet Length:", f"{params.get('sheet_length', 0):.2f}\""])
+    else:
+        detail_data.append(["Cut Width Total:", f"{params.get('cut_width', 0):.2f}\""])
+
+    detail_table = Table(detail_data, colWidths=[2*inch, 4*inch])
+    detail_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    story.append(detail_table)
+    story.append(Spacer(1, 20))
+
+    # Rate Breakdown
+    story.append(Paragraph("Rate Breakdown", styles['Heading2']))
+    story.append(Spacer(1, 10))
+
+    rate_rows = [["Charge", "$/CWT"]]
+    rate_rows.append(["Base Rate", f"${result.get('base_rate_cwt', 0):.2f}"])
+    for name, amt in result.get("auto_breakdown", []):
+        rate_rows.append([str(name), f"+${amt:.2f}"])
+    for name, amt in result.get("additional_breakdown", []):
+        rate_rows.append([str(name), f"+${amt:.2f}"])
+    rate_rows.append(["Total Rate", f"${result.get('total_rate_cwt', 0):.2f}"])
+
+    rate_table = Table(rate_rows, colWidths=[4.5*inch, 1.5*inch])
+    rate_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    story.append(rate_table)
+    story.append(Spacer(1, 20))
+
+    # Order Totals
+    story.append(Paragraph("Order Totals", styles['Heading2']))
+    story.append(Spacer(1, 10))
+
+    total_rate = result.get("total_rate_cwt", 0)
+    qty = params.get("quantity_lbs", 0)
+    order_total = total_rate * qty / 100.0
+
+    totals_data = [
+        ["Quantity:", f"{qty:,.0f} lbs"],
+        ["Total Rate:", f"${total_rate:.2f} / CWT"],
+        ["Order Total:", f"${order_total:,.2f}"],
+    ]
+
+    details = result.get("details", {})
+    if is_sheeter:
+        s_width = params.get("sheet_width", 0)
+        s_length = params.get("sheet_length", 0)
+        area_in = details.get("area_in", 0)
+        bw_lbs = details.get("basis_weight_lbs", 0)
+        if s_width > 0 and s_length > 0 and area_in > 0 and bw_lbs > 0:
+            mweight = round(((s_width * s_length) / area_in) * bw_lbs * 2)
+            price_per_m = total_rate * 0.01 * mweight
+            totals_data.append(["MWT:", f"{mweight:,} lbs / 1000 sheets"])
+            totals_data.append(["Price / M Sheets:", f"${price_per_m:,.2f}"])
+
+    totals_table = Table(totals_data, colWidths=[2*inch, 2*inch])
+    totals_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+    ]))
+    story.append(totals_table)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+# =========================================================
 # MAIN APP
 # =========================================================
 def main():
@@ -806,6 +921,63 @@ def main():
                     st.write(f"- {name}: +${amt:.2f}/CWT")
 
                 st.write(f"- **Total Rate: ${total_rate:.2f}/CWT**")
+
+            # Export buttons (CSV + PDF)
+            quote_params = st.session_state.quote_params
+            qty_lbs = quote_params.get("quantity_lbs", 0)
+            order_total = total_rate * qty_lbs / 100.0
+            service_token = "Sheeting" if details.get("equip_type") == "Sheeter" else "Rewinding"
+            pg_token = str(quote_params.get("product_group", "")).replace(" ", "")
+            fname_base = f"NCCQuote_{service_token}_{pg_token}" if pg_token else f"NCCQuote_{service_token}"
+
+            csv_lines = ["Field,Value"]
+            csv_lines.append(f"Service Type,{service_token}")
+            csv_lines.append(f"Product Group,{quote_params.get('product_group', '')}")
+            csv_lines.append(f"Basis Weight,{quote_params.get('basis_weight', 0)} {quote_params.get('basis_weight_unit', '')}")
+            csv_lines.append(f"Caliper,{quote_params.get('caliper', 0):.3f}")
+            csv_lines.append(f"Quantity (lbs),{qty_lbs:.0f}")
+            csv_lines.append(f"Parent Roll Width,{quote_params.get('parent_roll_width', 0):.2f}")
+            csv_lines.append(f"Parent Roll Diameter,{quote_params.get('parent_roll_diameter', 0):.2f}")
+            csv_lines.append(f"Parent Roll Core,{quote_params.get('parent_roll_core', 0):.2f}")
+            if service_token == "Sheeting":
+                csv_lines.append(f"Sheet Width,{quote_params.get('sheet_width', 0):.2f}")
+                csv_lines.append(f"Sheet Length,{quote_params.get('sheet_length', 0):.2f}")
+            else:
+                csv_lines.append(f"Cut Width Total,{quote_params.get('cut_width', 0):.2f}")
+
+            csv_lines.append("")
+            csv_lines.append("Charge,$/CWT")
+            csv_lines.append(f"Base Rate,${result.get('base_rate_cwt', 0):.2f}")
+            for name, amt in result.get("auto_breakdown", []):
+                csv_lines.append(f"{name},+${amt:.2f}")
+            for name, amt in result.get("additional_breakdown", []):
+                csv_lines.append(f"{name},+${amt:.2f}")
+            csv_lines.append(f"Total Rate,${total_rate:.2f}")
+
+            csv_lines.append("")
+            csv_lines.append(f"Order Total,${order_total:.2f}")
+            if mweight is not None:
+                csv_lines.append(f"MWT (lbs/1000 sheets),{mweight}")
+                csv_lines.append(f"Price / M Sheets,${price_per_m:.2f}")
+
+            csv_body = "\n".join(csv_lines) + "\n"
+
+            exp_col1, exp_col2, _ = st.columns([1, 1, 3])
+            with exp_col1:
+                st.download_button(
+                    "💾 Export to CSV",
+                    csv_body.encode("utf-8"),
+                    file_name=f"{fname_base}.csv",
+                    mime="text/csv",
+                )
+            with exp_col2:
+                pdf_bytes = generate_quote_pdf(quote_params, result)
+                st.download_button(
+                    "📄 Export to PDF",
+                    pdf_bytes,
+                    file_name=f"{fname_base}.pdf",
+                    mime="application/pdf",
+                )
 
             # Show calculation details in expander
             with st.expander("View Calculation Details"):
