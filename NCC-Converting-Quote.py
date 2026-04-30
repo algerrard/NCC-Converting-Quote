@@ -14,7 +14,7 @@ from reportlab.lib.units import inch
 # =========================================================
 # CONFIG
 # =========================================================
-st.set_page_config(page_title="NCC Converting Quote (dev)", page_icon="📦", layout="wide")
+st.set_page_config(page_title="NCC Converting Quote", page_icon="📦", layout="wide")
 
 st.markdown("""
     <script src="https://res.cdn.office.net/teams-js/2.0.0/js/MicrosoftTeams.min.js"></script>
