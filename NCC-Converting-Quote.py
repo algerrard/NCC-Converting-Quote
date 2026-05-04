@@ -793,6 +793,8 @@ def main():
             errors.append("Cut Width Total must be greater than 0")
         if parent_roll_width <= 0:
             errors.append("Parent Roll Width must be greater than 0")
+        if service_type == "Sheeter" and parent_roll_width > 65:
+            errors.append("Maximum roll width for sheeting cannot exceed 65 inches")
         if parent_roll_diameter <= 0:
             errors.append("Parent Roll Diameter must be greater than 0")
         if parent_roll_core >= parent_roll_diameter:
@@ -801,8 +803,20 @@ def main():
             errors.append("Quantity must be greater than 0")
 
         if errors:
+            # Clear any prior quote so a stale price doesn't linger next to the error
+            st.session_state.quote_result = None
+            st.session_state.quote_params = {}
             for error in errors:
-                st.error(error)
+                st.markdown(
+                    f"""
+                    <div style="background-color:#ffe5e5; border:2px solid #c0392b;
+                                color:#c0392b; padding:14px 18px; border-radius:6px;
+                                font-size:1.15rem; font-weight:700; margin-bottom:8px;">
+                        ⚠️ {error}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
         else:
             # Build params
             params = {
