@@ -793,6 +793,8 @@ def main():
             errors.append("Cut Width Total must be greater than 0")
         if parent_roll_width <= 0:
             errors.append("Parent Roll Width must be greater than 0")
+        if service_type == "Sheeter" and parent_roll_width > 65:
+            errors.append("Maximum roll width for sheeting cannot exceed 65 inches")
         if parent_roll_diameter <= 0:
             errors.append("Parent Roll Diameter must be greater than 0")
         if parent_roll_core >= parent_roll_diameter:
