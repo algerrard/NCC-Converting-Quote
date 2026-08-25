@@ -50,6 +50,11 @@ MACHINE_INFO_BLOB = "MachineInfo-NCC.csv"
 ADD_CHARGE_BLOB = "NCC Add Charge Schedule.csv"
 ORDER_SIZE_BLOB = "Order Size Adjustments.csv"
 
+# Appended to every reference-table lookup failure. A grade or equipment type the
+# tables do not cover is a data gap, not a user error -- the quote must stop and
+# say so, so the missing row actually gets added instead of being silently guessed.
+ADMIN_CONTACT = "Please contact the app administrator to update the reference table."
+
 # =========================================================
 # DATA LOADING
 # =========================================================
@@ -144,7 +149,7 @@ def calculate_roll_weight(diameter, core, width, density_factor):
     return (diameter**2 - core**2) * width * density_factor
 
 
-def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product Group"):
+def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product Group", grade_col=None):
     """
     Calculate the base converting rate in $/CWT.
 
@@ -160,6 +165,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
     try:
         # Extract parameters
         product_group = params.get("product_group")
+        grade = params.get("grade")
         basis_weight = params.get("basis_weight")
         basis_weight_unit = params.get("basis_weight_unit", "LBS")
         caliper = params.get("caliper", 0)
@@ -170,12 +176,31 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         quantity_lbs = params.get("quantity_lbs")
         service_type = params.get("service_type")  # "Rewinder", "Sheeter", or "Both"
 
-        # Lookup paper info by Product Group
-        paper_row = paper_df[paper_df[product_group_col].astype(str).str.strip() == str(product_group).strip()]
-        if paper_row.empty:
-            result["error"] = f"Product Group '{product_group}' not found in PaperInfoNCC"
+        # Lookup paper info by Product Group, then narrow to the grade.
+        # Basis size -- Area(IN) -- is a per-grade property: a group such as UFS
+        # spans 17x22 (374 in2) and 25x38 (950 in2), and 24 lb 17x22 is the same
+        # paper as 60 lb 25x38, so it has to convert at the same rate. Filtering
+        # on the group alone and taking .iloc[0] quoted whichever grade happened
+        # to sort first in the file.
+        candidates = paper_df[paper_df[product_group_col].astype(str).str.strip() == str(product_group).strip()]
+        if candidates.empty:
+            result["error"] = f"Product Group '{product_group}' not found in PaperInfoNCC. {ADMIN_CONTACT}"
             return result
-        paper_row = paper_row.iloc[0]
+
+        if grade_col and grade is not None and grade_col in candidates.columns:
+            by_grade = candidates[candidates[grade_col].astype(str).str.strip() == str(grade).strip()]
+            if by_grade.empty:
+                result["error"] = f"Grade '{grade}' not found under Product Group '{product_group}' in PaperInfoNCC. {ADMIN_CONTACT}"
+                return result
+            candidates = by_grade
+        elif len(candidates) > 1:
+            result["error"] = (
+                f"Product Group '{product_group}' has {len(candidates)} rows in PaperInfoNCC "
+                f"but no grade was selected -- basis size would be ambiguous. {ADMIN_CONTACT}"
+            )
+            return result
+
+        paper_row = candidates.iloc[0]
 
         # Get paper parameters
         area_in = float(paper_row.get("Area(IN)", 0) or 0)
@@ -189,10 +214,10 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         num_shtr_rolls = int(paper_row.get("NumShtrRolls", 1) or 1)
 
         if area_in == 0:
-            result["error"] = "Area(IN) is missing or zero in PaperInfoNCC"
+            result["error"] = f"Area(IN) is missing or zero in PaperInfoNCC. {ADMIN_CONTACT}"
             return result
         if density_factor == 0:
-            result["error"] = "Density_Factor is missing or zero in PaperInfoNCC"
+            result["error"] = f"Density_Factor is missing or zero in PaperInfoNCC. {ADMIN_CONTACT}"
             return result
 
         # Convert basis weight to LBS if needed
@@ -210,7 +235,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Lookup machine info
         machine_row = machine_df[machine_df["EquipType"].astype(str).str.strip() == equip_type]
         if machine_row.empty:
-            result["error"] = f"Equipment type '{equip_type}' not found in MachineInfo"
+            result["error"] = f"Equipment type '{equip_type}' not found in MachineInfo. {ADMIN_CONTACT}"
             return result
         machine_row = machine_row.iloc[0]
 
@@ -218,31 +243,31 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Read machine parameters — raise clear errors instead of silent defaults
         avg_speed = machine_row.get("AvgSpeed(FPM)")
         if pd.isna(avg_speed) or float(avg_speed) == 0:
-            result["error"] = f"AvgSpeed(FPM) is missing or zero for '{equip_type}' in MachineInfo-NCC"
+            result["error"] = f"AvgSpeed(FPM) is missing or zero for '{equip_type}' in MachineInfo-NCC. {ADMIN_CONTACT}"
             return result
         avg_speed = float(avg_speed)
 
         raw_rate = machine_row.get("HourlyRate")
         if pd.isna(raw_rate) or clean_currency(raw_rate, 0) == 0:
-            result["error"] = f"HourlyRate is missing or zero for '{equip_type}' in MachineInfo-NCC"
+            result["error"] = f"HourlyRate is missing or zero for '{equip_type}' in MachineInfo-NCC. {ADMIN_CONTACT}"
             return result
         hourly_rate = clean_currency(raw_rate, 0)
 
         raw_rc = machine_row.get("Roll_Change_Hrs")
         if pd.isna(raw_rc):
-            result["error"] = f"Roll_Change_Hrs is missing for '{equip_type}' in MachineInfo-NCC"
+            result["error"] = f"Roll_Change_Hrs is missing for '{equip_type}' in MachineInfo-NCC. {ADMIN_CONTACT}"
             return result
         roll_change_hrs = float(raw_rc)
 
         raw_su = machine_row.get("Setup_Hrs")
         if pd.isna(raw_su):
-            result["error"] = f"Setup_Hrs is missing for '{equip_type}' in MachineInfo-NCC"
+            result["error"] = f"Setup_Hrs is missing for '{equip_type}' in MachineInfo-NCC. {ADMIN_CONTACT}"
             return result
         setup_hrs = float(raw_su)
 
         raw_min = machine_row.get("Minimum Charge")
         if pd.isna(raw_min) or clean_currency(raw_min, 0) == 0:
-            result["error"] = f"Minimum Charge is missing or zero for '{equip_type}' in MachineInfo-NCC"
+            result["error"] = f"Minimum Charge is missing or zero for '{equip_type}' in MachineInfo-NCC. {ADMIN_CONTACT}"
             return result
         minimum_charge = clean_currency(raw_min, 0)
 
@@ -321,6 +346,7 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         result["base_rate_cwt"] = round(base_rate_cwt, 2)
         result["details"] = {
             "product_group": product_group,
+            "grade": grade,
             "basis_weight_lbs": round(basis_weight_lbs, 4),
             "caliper": caliper,
             "area_in": area_in,
@@ -487,6 +513,8 @@ def generate_quote_pdf(params, result):
         ["Parent Roll Diameter:", f"{params.get('parent_roll_diameter', 0):.2f}\""],
         ["Parent Roll Core:", f"{params.get('parent_roll_core', 0):.2f}\""],
     ]
+    if params.get("grade"):
+        detail_data.insert(2, ["Grade:", str(params.get("grade"))])
     if is_sheeter:
         detail_data.append(["Sheet Width:", f"{params.get('sheet_width', 0):.2f}\""])
         detail_data.append(["Sheet Length:", f"{params.get('sheet_length', 0):.2f}\""])
@@ -604,6 +632,19 @@ def main():
     product_groups = paper_df[product_group_col].dropna().unique().tolist()
     product_groups.sort()
 
+    # Grade column -- carries the basis size that Product Group cannot pin down.
+    grade_col = None
+    _by_lower = {str(c).strip().lower(): c for c in paper_df.columns}
+    for _pref in ["grade", "gradename", "grade name", "gradedescription", "gradeid", "grade id"]:
+        if _pref in _by_lower:
+            grade_col = _by_lower[_pref]
+            break
+    if grade_col is None:
+        for col in paper_df.columns:
+            if "grade" in str(col).lower():
+                grade_col = col
+                break
+
     # =========================================================
     # INPUT SECTION
     # =========================================================
@@ -648,6 +689,29 @@ def main():
             index=0 if product_groups else None,
             key=f"product_group{ks}"
         )
+
+        # Grade drives basis size, so it has to be picked explicitly whenever the
+        # selected group carries more than one grade row.
+        grade = None
+        if grade_col:
+            grade_options = sorted(
+                paper_df.loc[
+                    paper_df[product_group_col].astype(str).str.strip() == str(product_group).strip(),
+                    grade_col,
+                ]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .unique()
+                .tolist()
+            )
+            if grade_options:
+                grade = st.selectbox(
+                    "Grade",
+                    options=grade_options,
+                    index=0,
+                    key=f"grade{ks}_{product_group}"
+                )
 
         # Basis Weight with unit toggle
         basis_weight_unit = st.radio(
@@ -821,6 +885,7 @@ def main():
             # Build params
             params = {
                 "product_group": product_group,
+                "grade": grade,
                 "basis_weight": basis_weight,
                 "basis_weight_unit": basis_weight_unit,
                 "caliper": caliper,
@@ -835,7 +900,7 @@ def main():
             }
 
             # Calculate
-            result = calculate_base_rate(params, paper_df, machine_df, product_group_col)
+            result = calculate_base_rate(params, paper_df, machine_df, product_group_col, grade_col)
 
             if result["success"]:
                 # Auto charges (order qty brackets, trim, sheet length)
@@ -942,11 +1007,16 @@ def main():
             order_total = total_rate * qty_lbs / 100.0
             service_token = "Sheeting" if details.get("equip_type") == "Sheeter" else "Rewinding"
             pg_token = str(quote_params.get("product_group", "")).replace(" ", "")
+            grade_token = str(quote_params.get("grade", "") or "").replace(" ", "")
+            if grade_token:
+                pg_token = f"{pg_token}_{grade_token}" if pg_token else grade_token
             fname_base = f"NCCQuote_{service_token}_{pg_token}" if pg_token else f"NCCQuote_{service_token}"
 
             csv_lines = ["Field,Value"]
             csv_lines.append(f"Service Type,{service_token}")
             csv_lines.append(f"Product Group,{quote_params.get('product_group', '')}")
+            if quote_params.get("grade"):
+                csv_lines.append(f"Grade,{quote_params.get('grade', '')}")
             csv_lines.append(f"Basis Weight,{quote_params.get('basis_weight', 0)} {quote_params.get('basis_weight_unit', '')}")
             csv_lines.append(f"Caliper,{quote_params.get('caliper', 0):.3f}")
             csv_lines.append(f"Quantity (lbs),{qty_lbs:.0f}")
