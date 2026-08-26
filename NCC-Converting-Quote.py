@@ -168,7 +168,11 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         grade = params.get("grade")
         basis_weight = params.get("basis_weight")
         basis_weight_unit = params.get("basis_weight_unit", "LBS")
-        caliper = params.get("caliper", 0)
+        # Caliper is entered in POINTS (e.g. 16 pt). Convert to inches for the
+        # board-vs-thin-stock test below, which is expressed in inches
+        # (0.011" = 11 pt). Entering 16 previously compared 16 <= 0.011.
+        caliper_pts = float(params.get("caliper", 0) or 0)
+        caliper_in = caliper_pts / 1000.0
         cut_width = params.get("cut_width")
         parent_roll_width = params.get("parent_roll_width")
         parent_roll_diameter = params.get("parent_roll_diameter")
@@ -288,9 +292,9 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         num_rolls = max(1, num_rolls)  # At least 1 roll
 
         # Step 2b: Determine rolls running at one time (for sheeting)
-        # If sheeting and caliper <= 11 (or blank/zero), use NumShtrRolls
-        # Otherwise, 1 roll at a time
-        if equip_type == "Sheeter" and (caliper == 0 or caliper is None or caliper <= 0.011):
+        # If sheeting and caliper <= 0.011" (11 pt), or blank/zero, use NumShtrRolls
+        # Otherwise (board), 1 roll at a time
+        if equip_type == "Sheeter" and caliper_in <= 0.011:
             rolls_running = num_shtr_rolls
         else:
             rolls_running = 1
@@ -348,7 +352,8 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             "product_group": product_group,
             "grade": grade,
             "basis_weight_lbs": round(basis_weight_lbs, 4),
-            "caliper": caliper,
+            "caliper": caliper_pts,
+            "caliper_in": caliper_in,
             "area_in": area_in,
             "density_factor": density_factor,
             "run_adjust": run_adjust,
@@ -507,7 +512,7 @@ def generate_quote_pdf(params, result):
         ["Service Type:", "Sheeting" if is_sheeter else "Rewinding"],
         ["Product Group:", str(params.get("product_group", ""))],
         ["Basis Weight:", f"{params.get('basis_weight', 0)} {bw_unit}"],
-        ["Caliper:", f"{params.get('caliper', 0):.3f}\""],
+        ["Caliper:", f"{params.get('caliper', 0):.2f} pt"],
         ["Quantity:", f"{params.get('quantity_lbs', 0):,.0f} lbs"],
         ["Parent Roll Width:", f"{params.get('parent_roll_width', 0):.2f}\""],
         ["Parent Roll Diameter:", f"{params.get('parent_roll_diameter', 0):.2f}\""],
@@ -1018,7 +1023,7 @@ def main():
             if quote_params.get("grade"):
                 csv_lines.append(f"Grade,{quote_params.get('grade', '')}")
             csv_lines.append(f"Basis Weight,{quote_params.get('basis_weight', 0)} {quote_params.get('basis_weight_unit', '')}")
-            csv_lines.append(f"Caliper,{quote_params.get('caliper', 0):.3f}")
+            csv_lines.append(f"Caliper (PTS),{quote_params.get('caliper', 0):.2f}")
             csv_lines.append(f"Quantity (lbs),{qty_lbs:.0f}")
             csv_lines.append(f"Parent Roll Width,{quote_params.get('parent_roll_width', 0):.2f}")
             csv_lines.append(f"Parent Roll Diameter,{quote_params.get('parent_roll_diameter', 0):.2f}")
