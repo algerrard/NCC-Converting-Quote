@@ -209,13 +209,36 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
         # Get paper parameters
         area_in = float(paper_row.get("Area(IN)", 0) or 0)
         density_factor = float(paper_row.get("Density_Factor", 0) or 0)
-        gsm_factor = float(paper_row.get("GSM_Factor", 3100) or 3100)
-        if service_type == "Rewinder":
-            ra_val = paper_row.get("RW_RunAdjust")
-        else:
-            ra_val = paper_row.get("SHT_RunAdjust")
-        run_adjust = float(ra_val) if pd.notna(ra_val) else 1.0
-        num_shtr_rolls = int(paper_row.get("NumShtrRolls", 1) or 1)
+        gsm_factor_val = paper_row.get("GSM_Factor")
+        ra_col = "RW_RunAdjust" if service_type == "Rewinder" else "SHT_RunAdjust"
+        ra_val = paper_row.get(ra_col)
+        # No silent 1.0 fallback. A genuine 1.0 is written explicitly in the table
+        # for every uncalibrated grade, so a blank can only mean a missing row --
+        # defaulting would be indistinguishable from a real value and misprice the job.
+        if ra_val is None or pd.isna(ra_val):
+            result["error"] = f"{ra_col} is missing for '{product_group}' in PaperInfoNCC. {ADMIN_CONTACT}"
+            return result
+        try:
+            run_adjust = float(ra_val)
+        except (ValueError, TypeError):
+            result["error"] = f"{ra_col} is not numeric for '{product_group}' in PaperInfoNCC. {ADMIN_CONTACT}"
+            return result
+        if run_adjust <= 0:
+            result["error"] = f"{ra_col} must be greater than zero for '{product_group}' in PaperInfoNCC. {ADMIN_CONTACT}"
+            return result
+        # No silent 1 fallback: NumShtrRolls scales LbsPerHour directly, so a
+        # missing value would quietly halve or double the derived rate.
+        nsr_val = paper_row.get("NumShtrRolls")
+        if nsr_val is None or pd.isna(nsr_val):
+            result["error"] = f"NumShtrRolls is missing for '{product_group}' in PaperInfoNCC. {ADMIN_CONTACT}"
+            return result
+        try:
+            num_shtr_rolls = int(float(nsr_val))
+        except (ValueError, TypeError):
+            num_shtr_rolls = 0
+        if num_shtr_rolls < 1:
+            result["error"] = f"NumShtrRolls '{nsr_val}' is not a positive whole number for '{product_group}' in PaperInfoNCC. {ADMIN_CONTACT}"
+            return result
 
         if area_in == 0:
             result["error"] = f"Area(IN) is missing or zero in PaperInfoNCC. {ADMIN_CONTACT}"
@@ -224,8 +247,19 @@ def calculate_base_rate(params, paper_df, machine_df, product_group_col="Product
             result["error"] = f"Density_Factor is missing or zero in PaperInfoNCC. {ADMIN_CONTACT}"
             return result
 
-        # Convert basis weight to LBS if needed
+        # Convert basis weight to LBS if needed. No silent 3100 fallback -- the
+        # factor is per product group and a wrong one misstates every derived value.
         if basis_weight_unit == "GSM":
+            if gsm_factor_val is None or pd.isna(gsm_factor_val):
+                result["error"] = f"GSM_Factor is missing for '{product_group}' in PaperInfoNCC. {ADMIN_CONTACT}"
+                return result
+            try:
+                gsm_factor = float(gsm_factor_val)
+            except (ValueError, TypeError):
+                gsm_factor = 0.0
+            if gsm_factor <= 0:
+                result["error"] = f"GSM_Factor '{gsm_factor_val}' is not a positive number for '{product_group}' in PaperInfoNCC. {ADMIN_CONTACT}"
+                return result
             basis_weight_lbs = basis_weight / gsm_factor
         else:
             basis_weight_lbs = basis_weight
