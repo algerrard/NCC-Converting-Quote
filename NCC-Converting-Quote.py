@@ -14,7 +14,7 @@ from reportlab.lib.units import inch
 # =========================================================
 # CONFIG
 # =========================================================
-st.set_page_config(page_title="NCC Converting Quote", page_icon="📦", layout="wide")
+st.set_page_config(page_title="NCC Toll Converting Quote", page_icon="📦", layout="wide")
 
 st.markdown("""
     <script src="https://res.cdn.office.net/teams-js/2.0.0/js/MicrosoftTeams.min.js"></script>
@@ -531,7 +531,7 @@ def generate_quote_pdf(params, result):
     story = []
 
     title_style = ParagraphStyle('CustomTitle', parent=styles['Title'], fontSize=18, spaceAfter=20)
-    story.append(Paragraph("Norkol NCC Converting Quote", title_style))
+    story.append(Paragraph("Norkol NCC Toll Converting Quote", title_style))
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 20))
 
@@ -641,7 +641,7 @@ def generate_quote_pdf(params, result):
 # MAIN APP
 # =========================================================
 def main():
-    st.title("NCC Converting Quote")
+    st.title("NCC Toll Converting Quote")
 
     # Key suffix — changes on Reset to force fresh widgets
     ks = f"_{st.session_state.reset_counter}"
