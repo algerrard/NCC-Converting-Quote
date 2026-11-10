@@ -520,6 +520,59 @@ def calculate_auto_charges(base_rate_cwt, service_type, quantity_lbs,
     return round(adjusted_base, 2), round(auto_charges, 2), breakdown
 
 
+def estimate_yield(service_type, quantity_lbs, parent_roll_width, cut_width, order_size_df):
+    """
+    Estimate finished (yield) lbs from raw lbs.
+
+    Yield = Raw x (1 - Trim%) x (1 - RunWaste%)
+      Trim%     = (parent roll width - cut width total) / parent roll width
+      RunWaste% = Order Size Adjustments, AdjDescription 'RunWaste', by machine group + qty
+
+    Machine cost is unchanged (every raw lb still runs); only the $/CWT basis moves,
+    so yield-basis $/CWT = raw-basis $/CWT / yield_factor.
+
+    Returns dict with success/error, trim_pct, run_waste_pct, yield_factor, yield_lbs.
+    """
+    out = {"success": False, "error": None}
+    machine_group = "Rewinding" if service_type == "Rewinder" else "Sheeting"
+
+    if order_size_df is None:
+        out["error"] = f"Order Size Adjustments table could not be loaded -- yield cannot be estimated. {ADMIN_CONTACT}"
+        return out
+
+    rows = order_size_df[
+        (order_size_df["MachineGroup"].str.strip() == machine_group)
+        & (order_size_df["AdjDescription"].str.strip() == "RunWaste")
+        & (order_size_df["Minimum"] <= quantity_lbs)
+        & (order_size_df["Maximum"] >= quantity_lbs)
+    ]
+    if rows.empty or pd.isna(rows.iloc[0]["Adjustment_Pct"]):
+        out["error"] = (
+            f"No RunWaste row in Order Size Adjustments for {machine_group} at "
+            f"{quantity_lbs:,.0f} lbs -- yield cannot be estimated. {ADMIN_CONTACT}"
+        )
+        return out
+    run_waste_pct = float(rows.iloc[0]["Adjustment_Pct"])
+
+    trim_pct = (parent_roll_width - cut_width) / parent_roll_width if parent_roll_width > 0 else 0.0
+    trim_pct = max(0.0, trim_pct)
+
+    yield_factor = (1 - trim_pct) * (1 - run_waste_pct)
+    if yield_factor <= 0:
+        out["error"] = "Trim and run waste leave no usable yield -- check widths."
+        return out
+
+    out.update({
+        "success": True,
+        "machine_group": machine_group,
+        "trim_pct": trim_pct,
+        "run_waste_pct": run_waste_pct,
+        "yield_factor": yield_factor,
+        "yield_lbs": quantity_lbs * yield_factor,
+    })
+    return out
+
+
 # =========================================================
 # PDF REPORT GENERATION
 # =========================================================
@@ -533,7 +586,7 @@ def generate_quote_pdf(params, result):
     title_style = ParagraphStyle('CustomTitle', parent=styles['Title'], fontSize=18, spaceAfter=20)
     story.append(Paragraph("Norkol NCC Toll Converting Quote", title_style))
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 12))
 
     # Quote Details
     story.append(Paragraph("Quote Details", styles['Heading2']))
@@ -547,7 +600,7 @@ def generate_quote_pdf(params, result):
         ["Product Group:", str(params.get("product_group", ""))],
         ["Basis Weight:", f"{params.get('basis_weight', 0)} {bw_unit}"],
         ["Caliper:", f"{params.get('caliper', 0):.2f} pt"],
-        ["Quantity:", f"{params.get('quantity_lbs', 0):,.0f} lbs"],
+        ["Raw Quantity:", f"{params.get('quantity_lbs', 0):,.0f} lbs"],
         ["Parent Roll Width:", f"{params.get('parent_roll_width', 0):.2f}\""],
         ["Parent Roll Diameter:", f"{params.get('parent_roll_diameter', 0):.2f}\""],
         ["Parent Roll Core:", f"{params.get('parent_roll_core', 0):.2f}\""],
@@ -567,7 +620,7 @@ def generate_quote_pdf(params, result):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(detail_table)
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 12))
 
     # Rate Breakdown
     story.append(Paragraph("Rate Breakdown", styles['Heading2']))
@@ -579,7 +632,12 @@ def generate_quote_pdf(params, result):
         rate_rows.append([str(name), f"+${amt:.2f}"])
     for name, amt in result.get("additional_breakdown", []):
         rate_rows.append([str(name), f"+${amt:.2f}"])
-    rate_rows.append(["Total Rate", f"${result.get('total_rate_cwt', 0):.2f}"])
+    yld = result.get("yield", {})
+    raw_total_rate = result.get("raw_total_rate_cwt", result.get("total_rate_cwt", 0))
+    rate_rows.append(["Total Rate (Raw basis)", f"${raw_total_rate:.2f}"])
+    if yld:
+        rate_rows.append([f"Yield basis: ÷ yield factor {yld['yield_factor']:.4f}, rounded to $0.25", ""])
+    rate_rows.append(["Total Rate (Yield basis)", f"${result.get('total_rate_cwt', 0):.2f}"])
 
     rate_table = Table(rate_rows, colWidths=[4.5*inch, 1.5*inch])
     rate_table.setStyle(TableStyle([
@@ -595,7 +653,7 @@ def generate_quote_pdf(params, result):
         ('TOPPADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(rate_table)
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 12))
 
     # Order Totals
     story.append(Paragraph("Order Totals", styles['Heading2']))
@@ -603,13 +661,14 @@ def generate_quote_pdf(params, result):
 
     total_rate = result.get("total_rate_cwt", 0)
     qty = params.get("quantity_lbs", 0)
-    order_total = total_rate * qty / 100.0
+    yield_lbs = yld.get("yield_lbs", qty) if yld else qty
+    order_total = total_rate * yield_lbs / 100.0
 
-    totals_data = [
-        ["Quantity:", f"{qty:,.0f} lbs"],
-        ["Total Rate:", f"${total_rate:.2f} / CWT"],
-        ["Order Total:", f"${order_total:,.2f}"],
-    ]
+    totals_data = []
+    if yld:
+        totals_data.append(["Trim / Run Waste:", f"{yld['trim_pct'] * 100:.1f}% / {yld['run_waste_pct'] * 100:.1f}%"])
+        totals_data.append(["Estimated Yield:", f"{yield_lbs:,.0f} lbs"])
+    totals_data.append(["Order Total:", f"${order_total:,.2f}"])
 
     details = result.get("details", {})
     if is_sheeter:
@@ -896,6 +955,10 @@ def main():
             errors.append("Cut Width Total must be greater than 0")
         if parent_roll_width <= 0:
             errors.append("Parent Roll Width must be greater than 0")
+        elif service_type != "Sheeter" and cut_width > parent_roll_width:
+            errors.append("Cut Width Total cannot exceed Parent Roll Width")
+        elif service_type == "Sheeter" and sheet_width > parent_roll_width:
+            errors.append("Sheet Width cannot exceed Parent Roll Width")
         if service_type == "Sheeter" and parent_roll_width > 65:
             errors.append("Maximum roll width for sheeting cannot exceed 65 inches")
         if parent_roll_diameter <= 0:
@@ -962,9 +1025,19 @@ def main():
                 result["additional_charges_cwt"] = add_total
                 result["additional_breakdown"] = add_breakdown
 
-                # Total = adjusted base + auto surcharges + checkbox surcharges
-                # Round to nearest $0.25
-                result["total_rate_cwt"] = round((adjusted_base + auto_total + add_total) * 4) / 4
+                # Raw-basis total = adjusted base + auto surcharges + checkbox surcharges
+                raw_total = adjusted_base + auto_total + add_total
+                result["raw_total_rate_cwt"] = round(raw_total, 2)
+
+                # Convert to yield basis, then round to nearest $0.25
+                yld = estimate_yield(service_type, quantity_lbs, parent_roll_width,
+                                     cut_width, order_size_df)
+                if yld["success"]:
+                    result["yield"] = yld
+                    result["total_rate_cwt"] = round((raw_total / yld["yield_factor"]) * 4) / 4
+                else:
+                    result["success"] = False
+                    result["error"] = yld["error"]
             else:
                 result["adjusted_base_cwt"] = 0.0
                 result["auto_charges_cwt"] = 0.0
@@ -982,7 +1055,7 @@ def main():
     if st.session_state.quote_result is not None:
         result = st.session_state.quote_result
 
-        st.header("Quote Result")
+        st.header("Quote Results (based on estimated yield)")
 
         if result["success"]:
             # Display main result prominently
@@ -1006,44 +1079,58 @@ def main():
                     mweight = round(((s_width * s_length) / area_in) * bw_lbs * 2)
                     price_per_m = total_rate * 0.01 * mweight
 
+            raw_total_rate = result.get("raw_total_rate_cwt", total_rate)
+            yld = result.get("yield", {})
+
             # Display metrics row
             if mweight is not None:
-                col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+                col_r1, col_r2, col_r3, col_r4, col_r5 = st.columns(5)
             else:
-                col_r1, col_r2 = st.columns(2)
+                col_r1, col_r2, col_r3 = st.columns(3)
 
             with col_r1:
-                st.metric(label="Base Rate", value=f"${result['base_rate_cwt']:.2f} / CWT")
+                st.metric(label="Base Rate (Raw)", value=f"${result['base_rate_cwt']:.2f} / CWT")
             with col_r2:
-                st.metric(label="Total Rate", value=f"${total_rate:.2f} / CWT")
+                st.metric(label="Total Rate (Raw)", value=f"${raw_total_rate:.2f} / CWT")
+            with col_r3:
+                st.metric(label="Total Rate (Yield)", value=f"${total_rate:.2f} / CWT")
 
             if mweight is not None:
-                with col_r3:
-                    st.metric(label="MWT", value=f"{mweight:,} lbs")
                 with col_r4:
+                    st.metric(label="MWT", value=f"{mweight:,} lbs")
+                with col_r5:
                     st.metric(label="Price / M Sheets", value=f"${price_per_m:,.2f}")
 
+            if yld:
+                st.info(
+                    f"**Estimated Yield: {yld['yield_lbs']:,.0f} lbs** from "
+                    f"{st.session_state.quote_params.get('quantity_lbs', 0):,.0f} raw lbs — "
+                    f"Trim {yld['trim_pct'] * 100:.1f}% · Run Waste {yld['run_waste_pct'] * 100:.1f}% "
+                    f"· Yield Factor {yld['yield_factor']:.4f}"
+                )
+
             # Rate breakdown
-            if has_extras:
-                st.markdown("**Rate Breakdown:**")
-                st.write(f"- Base Rate: ${result['base_rate_cwt']:.2f}/CWT")
+            st.markdown("**Rate Breakdown:**")
+            st.write(f"- Base Rate: ${result['base_rate_cwt']:.2f}/CWT")
 
-                # Auto charges (order qty, trim, sheet length)
-                auto_breakdown = result.get("auto_breakdown", [])
-                for name, amt in auto_breakdown:
-                    st.write(f"- {name}: +${amt:.2f}/CWT")
+            # Auto charges (order qty, trim, sheet length)
+            for name, amt in result.get("auto_breakdown", []):
+                st.write(f"- {name}: +${amt:.2f}/CWT")
 
-                # Checkbox surcharges
-                add_breakdown = result.get("additional_breakdown", [])
-                for name, amt in add_breakdown:
-                    st.write(f"- {name}: +${amt:.2f}/CWT")
+            # Checkbox surcharges
+            for name, amt in result.get("additional_breakdown", []):
+                st.write(f"- {name}: +${amt:.2f}/CWT")
 
-                st.write(f"- **Total Rate: ${total_rate:.2f}/CWT**")
+            st.write(f"- Total Rate (Raw basis): ${raw_total_rate:.2f}/CWT")
+            if yld:
+                st.write(f"- ÷ Yield Factor {yld['yield_factor']:.4f}, rounded to nearest $0.25")
+            st.write(f"- **Total Rate (Yield basis): ${total_rate:.2f}/CWT**")
 
             # Export buttons (CSV + PDF)
             quote_params = st.session_state.quote_params
             qty_lbs = quote_params.get("quantity_lbs", 0)
-            order_total = total_rate * qty_lbs / 100.0
+            yield_lbs = yld.get("yield_lbs", qty_lbs) if yld else qty_lbs
+            order_total = total_rate * yield_lbs / 100.0
             service_token = "Sheeting" if details.get("equip_type") == "Sheeter" else "Rewinding"
             pg_token = str(quote_params.get("product_group", "")).replace(" ", "")
             grade_token = str(quote_params.get("grade", "") or "").replace(" ", "")
@@ -1058,7 +1145,12 @@ def main():
                 csv_lines.append(f"Grade,{quote_params.get('grade', '')}")
             csv_lines.append(f"Basis Weight,{quote_params.get('basis_weight', 0)} {quote_params.get('basis_weight_unit', '')}")
             csv_lines.append(f"Caliper (PTS),{quote_params.get('caliper', 0):.2f}")
-            csv_lines.append(f"Quantity (lbs),{qty_lbs:.0f}")
+            csv_lines.append(f"Raw Quantity (lbs),{qty_lbs:.0f}")
+            if yld:
+                csv_lines.append(f"Trim Waste %,{yld['trim_pct'] * 100:.2f}")
+                csv_lines.append(f"Run Waste %,{yld['run_waste_pct'] * 100:.2f}")
+                csv_lines.append(f"Yield Factor,{yld['yield_factor']:.4f}")
+                csv_lines.append(f"Estimated Yield (lbs),{yield_lbs:.0f}")
             csv_lines.append(f"Parent Roll Width,{quote_params.get('parent_roll_width', 0):.2f}")
             csv_lines.append(f"Parent Roll Diameter,{quote_params.get('parent_roll_diameter', 0):.2f}")
             csv_lines.append(f"Parent Roll Core,{quote_params.get('parent_roll_core', 0):.2f}")
@@ -1075,7 +1167,8 @@ def main():
                 csv_lines.append(f"{name},+${amt:.2f}")
             for name, amt in result.get("additional_breakdown", []):
                 csv_lines.append(f"{name},+${amt:.2f}")
-            csv_lines.append(f"Total Rate,${total_rate:.2f}")
+            csv_lines.append(f"Total Rate (Raw basis),${raw_total_rate:.2f}")
+            csv_lines.append(f"Total Rate (Yield basis),${total_rate:.2f}")
 
             csv_lines.append("")
             csv_lines.append(f"Order Total,${order_total:.2f}")
@@ -1113,7 +1206,12 @@ def main():
                     st.write(f"- Product Group: {details['product_group']}")
                     st.write(f"- Service Type: {details['service_type']}")
                     st.write(f"- Basis Weight (LBS): {details['basis_weight_lbs']}")
-                    st.write(f"- Quantity: {details['quantity_lbs']:,.0f} lbs")
+                    st.write(f"- Quantity (Raw): {details['quantity_lbs']:,.0f} lbs")
+                    if yld:
+                        st.markdown("**Yield Estimate**")
+                        st.write(f"- Trim: {yld['trim_pct'] * 100:.2f}% (parent vs cut width)")
+                        st.write(f"- Run Waste: {yld['run_waste_pct'] * 100:.2f}% ({yld['machine_group']}, Order Size Adjustments)")
+                        st.write(f"- Yield Factor: (1 − trim) × (1 − run waste) = {yld['yield_factor']:.4f}")
 
                     st.markdown("**Paper Information**")
                     st.write(f"- Area (IN): {details['area_in']}")
@@ -1135,11 +1233,19 @@ def main():
                     st.write(f"- Roll Change Hours: {details['roll_change_hours']:.4f}")
                     st.write(f"- Total Hours: {details['total_hours']:.4f}")
                     st.write(f"- Total Cost: ${details['total_cost']:.2f}")
+                    if yld:
+                        st.write(f"- Estimated Yield: {yld['yield_lbs']:,.0f} lbs "
+                                 f"({details['quantity_lbs']:,.0f} raw × {yld['yield_factor']:.4f})")
 
                     st.markdown("**Base Rate Derivation**")
                     st.write(f"_Rate calculated at {details['rate_qty']:,.0f} lbs (minimum 20,000):_")
                     st.write(f"- Rolls: {details['rate_num_rolls']} | Hours: {details['rate_total_hours']:.4f} | Cost: ${details['rate_total_cost']:.2f}")
-                    st.write(f"- **${details['rate_total_cost']:.2f} / {details['rate_qty']:,.0f} × 100 = ${result['base_rate_cwt']:.2f}/CWT**")
+                    st.write(f"- **Raw Material Based:** ${details['rate_total_cost']:.2f} / {details['rate_qty']:,.0f} × 100 = ${result['base_rate_cwt']:.2f}/CWT")
+                    if yld:
+                        rate_yield_lbs = details['rate_qty'] * yld['yield_factor']
+                        base_yield_cwt = details['rate_total_cost'] / rate_yield_lbs * 100 if rate_yield_lbs > 0 else 0
+                        st.write(f"- **Yield Based:** ${details['rate_total_cost']:.2f} / {rate_yield_lbs:,.0f} × 100 = ${base_yield_cwt:.2f}/CWT "
+                                 f"_({details['rate_qty']:,.0f} × {yld['yield_factor']:.4f} yield factor)_")
         else:
             st.error(f"Calculation Error: {result['error']}")
 
