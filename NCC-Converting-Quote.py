@@ -1081,25 +1081,30 @@ def main():
 
             raw_total_rate = result.get("raw_total_rate_cwt", total_rate)
             yld = result.get("yield", {})
+            yf = yld.get("yield_factor", 1.0) if yld else 1.0
+
+            # Everything in this section is yield basis (raw $/CWT / yield factor).
+            # Raw vs yield side-by-side lives only in the Base Rate Derivation detail.
+            base_yield = round(result["base_rate_cwt"] / yf, 2)
+            yield_lines = [(n, round(a / yf, 2)) for n, a in
+                           result.get("auto_breakdown", []) + result.get("additional_breakdown", [])]
+            rounding_adj = round(total_rate - base_yield - sum(a for _, a in yield_lines), 2)
 
             # Display metrics row
             if mweight is not None:
-                col_r1, col_r2, col_r3, col_r4, col_r5 = st.columns(5)
+                col_r1, col_r2, col_r3, col_r4 = st.columns(4)
             else:
-                col_r1, col_r2, col_r3 = st.columns(3)
+                col_r1, col_r2 = st.columns(2)
 
-            # Yield-basis rate is the customer quote, so it leads the row
             with col_r1:
-                st.metric(label="Total Rate (Yield)", value=f"${total_rate:.2f} / CWT")
+                st.metric(label="Base Rate", value=f"${base_yield:.2f} / CWT")
             with col_r2:
-                st.metric(label="Total Rate (Raw)", value=f"${raw_total_rate:.2f} / CWT")
-            with col_r3:
-                st.metric(label="Base Rate (Raw)", value=f"${result['base_rate_cwt']:.2f} / CWT")
+                st.metric(label="Total Rate", value=f"${total_rate:.2f} / CWT")
 
             if mweight is not None:
-                with col_r4:
+                with col_r3:
                     st.metric(label="MWT", value=f"{mweight:,} lbs")
-                with col_r5:
+                with col_r4:
                     st.metric(label="Price / M Sheets", value=f"${price_per_m:,.2f}")
 
             if yld:
@@ -1107,25 +1112,19 @@ def main():
                     f"**Estimated Yield: {yld['yield_lbs']:,.0f} lbs** from "
                     f"{st.session_state.quote_params.get('quantity_lbs', 0):,.0f} raw lbs — "
                     f"Trim {yld['trim_pct'] * 100:.1f}% · Run Waste {yld['run_waste_pct'] * 100:.1f}% "
-                    f"· Yield Factor {yld['yield_factor']:.4f}"
+                    f"· Yield Factor {yf:.4f}"
                 )
 
-            # Rate breakdown
-            st.markdown("**Rate Breakdown:**")
-            st.write(f"- Base Rate: ${result['base_rate_cwt']:.2f}/CWT")
-
-            # Auto charges (order qty, trim, sheet length)
-            for name, amt in result.get("auto_breakdown", []):
-                st.write(f"- {name}: +${amt:.2f}/CWT")
-
-            # Checkbox surcharges
-            for name, amt in result.get("additional_breakdown", []):
-                st.write(f"- {name}: +${amt:.2f}/CWT")
-
-            st.write(f"- Total Rate (Raw basis): ${raw_total_rate:.2f}/CWT")
-            if yld:
-                st.write(f"- ÷ Yield Factor {yld['yield_factor']:.4f}, rounded to nearest $0.25")
-            st.write(f"- **Total Rate (Yield basis): ${total_rate:.2f}/CWT**")
+            # Rate breakdown (yield basis)
+            if has_extras or rounding_adj != 0:
+                st.markdown("**Rate Breakdown:**")
+                st.write(f"- Base Rate: ${base_yield:.2f}/CWT")
+                for name, amt in yield_lines:
+                    st.write(f"- {name}: +${amt:.2f}/CWT")
+                if rounding_adj != 0:
+                    sign = "+" if rounding_adj > 0 else "−"
+                    st.write(f"- Rounding to nearest $0.25: {sign}${abs(rounding_adj):.2f}/CWT")
+                st.write(f"- **Total Rate: ${total_rate:.2f}/CWT**")
 
             # Export buttons (CSV + PDF)
             quote_params = st.session_state.quote_params
