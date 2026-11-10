@@ -1088,12 +1088,13 @@ def main():
             else:
                 col_r1, col_r2, col_r3 = st.columns(3)
 
+            # Yield-basis rate is the customer quote, so it leads the row
             with col_r1:
-                st.metric(label="Base Rate (Raw)", value=f"${result['base_rate_cwt']:.2f} / CWT")
+                st.metric(label="Total Rate (Yield)", value=f"${total_rate:.2f} / CWT")
             with col_r2:
                 st.metric(label="Total Rate (Raw)", value=f"${raw_total_rate:.2f} / CWT")
             with col_r3:
-                st.metric(label="Total Rate (Yield)", value=f"${total_rate:.2f} / CWT")
+                st.metric(label="Base Rate (Raw)", value=f"${result['base_rate_cwt']:.2f} / CWT")
 
             if mweight is not None:
                 with col_r4:
